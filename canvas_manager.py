@@ -11,9 +11,9 @@ import copy
 
 from object_model import DrawingObject, reset_id_counter
 from drawing_algorithms import (
-    dda_line, bresenham_line, bezier_curve, flood_fill, hex_to_rgb
+    dda_line, bresenham_line, bezier_curve, bspline_curve, flood_fill, boundary_fill, hex_to_rgb
 )
-from transform import translate, rotate, scale
+from transform import translate, rotate, scale, reflect
 
 # Cek ketersediaan Pillow
 try:
@@ -62,6 +62,9 @@ class CanvasManager:
         self.current_fill_color = None
         self.current_line_width = 2
         self.current_line_style = "solid"
+        self.current_line_algorithm = "Bresenham"
+        self.current_curve_algorithm = "Bezier"
+        self.current_fill_algorithm = "Flood Fill"
 
         # State menggambar
         self.is_drawing = False
@@ -76,6 +79,10 @@ class CanvasManager:
         # State bezier
         self.bezier_points = []
         self.bezier_preview_ids = []
+
+        # State pencil/eraser
+        self.freehand_points = []
+        self.freehand_preview_ids = []
 
         # Bind mouse events
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
@@ -108,8 +115,12 @@ class CanvasManager:
             self._handle_text(x, y)
         elif self.current_tool == "bezier":
             self._handle_bezier_click(x, y)
+        elif self.current_tool in ["pencil", "eraser"]:
+            self.is_drawing = True
+            self.freehand_points = [(x, y)]
+            self.start_x, self.start_y = x, y
         else:
-            # Tools yang menggunakan drag: line, rectangle, circle, triangle
+            # Tools yang menggunakan drag: line, rectangle, circle, triangle, trapezium, ellipse
             self.is_drawing = True
             self.start_x = x
             self.start_y = y
@@ -177,6 +188,48 @@ class CanvasManager:
             )
             self.preview_ids.append(pid)
 
+        elif self.current_tool == "trapezium":
+            # Trapezium: sisi atas lebih pendek dari sisi bawah
+            w = abs(x - self.start_x)
+            points = [
+                self.start_x + w * 0.25, self.start_y,
+                self.start_x + w * 0.75, self.start_y,
+                x, y,
+                self.start_x, y
+            ]
+            pid = self.canvas.create_polygon(
+                points,
+                outline=self.current_color,
+                fill='',
+                width=self.current_line_width,
+                dash=dash
+            )
+            self.preview_ids.append(pid)
+
+        elif self.current_tool == "ellipse":
+            pid = self.canvas.create_oval(
+                self.start_x, self.start_y, x, y,
+                outline=self.current_color,
+                width=self.current_line_width,
+                dash=dash
+            )
+            self.preview_ids.append(pid)
+
+        elif self.current_tool in ["pencil", "eraser"]:
+            color = "#FFFFFF" if self.current_tool == "eraser" else self.current_color
+            w = max(5, self.current_line_width * 2) if self.current_tool == "eraser" else self.current_line_width
+            
+            last_x, last_y = self.freehand_points[-1]
+            pid = self.canvas.create_line(
+                last_x, last_y, x, y,
+                fill=color,
+                width=w,
+                capstyle=tk.ROUND,
+                joinstyle=tk.ROUND
+            )
+            self.freehand_preview_ids.append(pid)
+            self.freehand_points.append((x, y))
+
     def on_mouse_up(self, event):
         """Handler saat mouse dilepas — finalisasi objek."""
         if not self.is_drawing:
@@ -201,6 +254,26 @@ class CanvasManager:
             self._create_circle_object(self.start_x, self.start_y, x, y)
         elif self.current_tool == "triangle":
             self._create_triangle_object(self.start_x, self.start_y, x, y)
+        elif self.current_tool == "trapezium":
+            self._create_trapezium_object(self.start_x, self.start_y, x, y)
+        elif self.current_tool == "ellipse":
+            self._create_ellipse_object(self.start_x, self.start_y, x, y)
+        elif self.current_tool in ["pencil", "eraser"]:
+            color = "#FFFFFF" if self.current_tool == "eraser" else self.current_color
+            w = max(5, self.current_line_width * 2) if self.current_tool == "eraser" else self.current_line_width
+            obj = DrawingObject(
+                obj_type="freehand",
+                points=list(self.freehand_points),
+                outline_color=color,
+                line_width=w
+            )
+            self.objects.append(obj)
+            # Karena freehand preview sudah tergambar di canvas, hapus preview
+            for pid in self.freehand_preview_ids:
+                self.canvas.delete(pid)
+            self.freehand_preview_ids = []
+            self.freehand_points = []
+            self.render_object(obj)
 
     # ============================================================
     # PEMBUATAN OBJEK
@@ -216,7 +289,8 @@ class CanvasManager:
             points=[(x1, y1), (x2, y2)],
             outline_color=self.current_color,
             line_width=self.current_line_width,
-            line_style=self.current_line_style
+            line_style=self.current_line_style,
+            algorithm=self.current_line_algorithm
         )
         self.objects.append(obj)
         self.render_object(obj)
@@ -256,6 +330,39 @@ class CanvasManager:
         obj = DrawingObject(
             obj_type="triangle",
             points=[(mid_x, y1), (x1, y2), (x2, y2)],
+            outline_color=self.current_color,
+            fill_color=self.current_fill_color,
+            line_width=self.current_line_width,
+            line_style=self.current_line_style
+        )
+        self.objects.append(obj)
+        self.render_object(obj)
+
+    def _create_trapezium_object(self, x1, y1, x2, y2):
+        """Membuat objek Trapezium."""
+        w = abs(x2 - x1)
+        points = [
+            (x1 + w * 0.25, y1),
+            (x1 + w * 0.75, y1),
+            (x2, y2),
+            (x1, y2)
+        ]
+        obj = DrawingObject(
+            obj_type="trapezium",
+            points=points,
+            outline_color=self.current_color,
+            fill_color=self.current_fill_color,
+            line_width=self.current_line_width,
+            line_style=self.current_line_style
+        )
+        self.objects.append(obj)
+        self.render_object(obj)
+
+    def _create_ellipse_object(self, x1, y1, x2, y2):
+        """Membuat objek Ellipse."""
+        obj = DrawingObject(
+            obj_type="ellipse",
+            points=[(x1, y1), (x2, y2)],
             outline_color=self.current_color,
             fill_color=self.current_fill_color,
             line_width=self.current_line_width,
@@ -307,7 +414,8 @@ class CanvasManager:
                 points=list(self.bezier_points),
                 outline_color=self.current_color,
                 line_width=self.current_line_width,
-                line_style=self.current_line_style
+                line_style=self.current_line_style,
+                algorithm=self.current_curve_algorithm
             )
             self.objects.append(obj)
             self.render_object(obj)
@@ -338,27 +446,37 @@ class CanvasManager:
     def _flood_fill_pil(self, x, y, width, height):
         """Flood fill menggunakan Pillow untuk akses pixel."""
         try:
-            # Simpan canvas ke PostScript lalu convert
-            ps = self.canvas.postscript(colormode='color')
-            from io import BytesIO
-            img = Image.open(BytesIO(ps.encode('utf-8')))
-            img = img.convert('RGB')
+            # Ambil screenshot area canvas (lebih stabil daripada PostScript)
+            x0 = self.canvas.winfo_rootx()
+            y0 = self.canvas.winfo_rooty()
+            x1 = x0 + width
+            y1 = y0 + height
+            img = ImageGrab.grab(bbox=(x0, y0, x1, y1)).convert('RGB')
 
             # Ambil warna target
             if x < 0 or x >= img.width or y < 0 or y >= img.height:
                 return
 
             target_color = img.getpixel((x, y))
-            fill_rgb = hex_to_rgb(self.current_color)
+            fill_color = self.current_fill_color or self.current_color
+            fill_rgb = hex_to_rgb(fill_color)
 
             if target_color == fill_rgb:
                 return
 
-            # Flood fill pada image
+            # Flood fill / Boundary fill pada image
             pixels = img.load()
             tolerance = 30
             stack = [(x, y)]
             visited = set()
+            
+            algo = getattr(self, 'current_fill_algorithm', 'Flood Fill')
+            is_boundary = ("boundary" in algo.lower())
+            
+            # Untuk boundary fill, asumsi boundary color adalah warna outline saat ini
+            # atau kita bisa asumsikan boundary adalah sesuatu yang beda dengan target_color
+            # Di sini kita gunakan warna saat ini (current_color) sebagai boundary color
+            boundary_color = hex_to_rgb(self.current_color)
 
             while stack:
                 px, py = stack.pop()
@@ -369,21 +487,40 @@ class CanvasManager:
                 visited.add((px, py))
 
                 current = pixels[px, py]
-                if (abs(current[0] - target_color[0]) <= tolerance and
-                    abs(current[1] - target_color[1]) <= tolerance and
-                    abs(current[2] - target_color[2]) <= tolerance):
-                    pixels[px, py] = fill_rgb
-                    stack.append((px + 1, py))
-                    stack.append((px - 1, py))
-                    stack.append((px, py + 1))
-                    stack.append((px, py - 1))
+                
+                if is_boundary:
+                    # Boundary Fill
+                    is_boundary_color = (abs(current[0] - boundary_color[0]) <= tolerance and
+                                         abs(current[1] - boundary_color[1]) <= tolerance and
+                                         abs(current[2] - boundary_color[2]) <= tolerance)
+                    is_fill_color = (abs(current[0] - fill_rgb[0]) <= tolerance and
+                                     abs(current[1] - fill_rgb[1]) <= tolerance and
+                                     abs(current[2] - fill_rgb[2]) <= tolerance)
+                    
+                    if not is_boundary_color and not is_fill_color:
+                        pixels[px, py] = fill_rgb
+                        stack.append((px + 1, py))
+                        stack.append((px - 1, py))
+                        stack.append((px, py + 1))
+                        stack.append((px, py - 1))
+                else:
+                    # Flood Fill
+                    if (abs(current[0] - target_color[0]) <= tolerance and
+                        abs(current[1] - target_color[1]) <= tolerance and
+                        abs(current[2] - target_color[2]) <= tolerance):
+                        pixels[px, py] = fill_rgb
+                        stack.append((px + 1, py))
+                        stack.append((px - 1, py))
+                        stack.append((px, py + 1))
+                        stack.append((px, py - 1))
 
             # Tampilkan hasil pada canvas
             tk_img = ImageTk.PhotoImage(img)
             fill_obj = DrawingObject(
                 obj_type="fill",
                 points=[(0, 0)],
-                outline_color=self.current_color
+                outline_color=fill_color,
+                fill_color=fill_color
             )
             fill_obj.image_ref = tk_img
             img_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
@@ -396,7 +533,7 @@ class CanvasManager:
 
         except Exception as e:
             messagebox.showwarning("Fill Error",
-                f"Flood fill gagal: {str(e)}\nPastikan Ghostscript terinstall untuk fitur ini.")
+                f"Flood fill gagal: {str(e)}\nPastikan Pillow terinstall dan akses screenshot diizinkan.")
             # Fallback ke metode sederhana
             self._flood_fill_simple(x, y)
 
@@ -412,17 +549,18 @@ class CanvasManager:
 
         # Metode sederhana: gambar oval besar di posisi klik
         # sebagai representasi fill
+        fill_color = self.current_fill_color or self.current_color
         fill_obj = DrawingObject(
             obj_type="fill",
             points=[(x, y)],
-            outline_color=self.current_color,
-            fill_color=self.current_color
+            outline_color=fill_color,
+            fill_color=fill_color
         )
 
         r = 50  # Radius fill area
         fill_id = self.canvas.create_oval(
             x - r, y - r, x + r, y + r,
-            fill=self.current_color,
+            fill=fill_color,
             outline=""
         )
         fill_obj.canvas_ids = [fill_id]
@@ -548,6 +686,10 @@ class CanvasManager:
             self._render_circle(obj, dash)
         elif obj.obj_type == "triangle":
             self._render_triangle(obj, dash)
+        elif obj.obj_type == "trapezium":
+            self._render_trapezium(obj, dash)
+        elif obj.obj_type == "ellipse":
+            self._render_ellipse(obj, dash)
         elif obj.obj_type == "bezier":
             self._render_bezier(obj, dash)
         elif obj.obj_type == "text":
@@ -556,6 +698,8 @@ class CanvasManager:
             self._render_image(obj)
         elif obj.obj_type == "fill":
             pass  # Fill sudah di-render saat dibuat
+        elif obj.obj_type == "freehand":
+            self._render_freehand(obj, dash)
 
         # Update selection box jika objek ini yang dipilih
         if self.selected_object and self.selected_object.id == obj.id:
@@ -573,7 +717,11 @@ class CanvasManager:
         x2, y2 = obj.points[1]
 
         # Hitung pixel menggunakan algoritma Bresenham
-        pixels = bresenham_line(x1, y1, x2, y2)
+        algo = obj.algorithm or getattr(self, 'current_line_algorithm', 'Bresenham')
+        if algo == "DDA":
+            pixels = dda_line(x1, y1, x2, y2)
+        else:
+            pixels = bresenham_line(x1, y1, x2, y2)
 
         # Untuk efisiensi + visual: gambar garis native canvas
         # tapi simpan info algoritma
@@ -647,6 +795,37 @@ class CanvasManager:
         )
         obj.canvas_ids.append(cid)
 
+    def _render_trapezium(self, obj, dash):
+        """Render trapesium."""
+        if len(obj.points) < 4:
+            return
+        coords = []
+        for p in obj.points[:4]:
+            coords.extend([p[0], p[1]])
+        cid = self.canvas.create_polygon(
+            coords,
+            outline=obj.outline_color,
+            fill=obj.fill_color if obj.fill_color else '',
+            width=obj.line_width,
+            dash=dash
+        )
+        obj.canvas_ids.append(cid)
+
+    def _render_ellipse(self, obj, dash):
+        """Render elips."""
+        if len(obj.points) < 2:
+            return
+        x1, y1 = obj.points[0]
+        x2, y2 = obj.points[1]
+        cid = self.canvas.create_oval(
+            x1, y1, x2, y2,
+            outline=obj.outline_color,
+            fill=obj.fill_color if obj.fill_color else '',
+            width=obj.line_width,
+            dash=dash
+        )
+        obj.canvas_ids.append(cid)
+
     def _render_bezier(self, obj, dash):
         """
         Render kurva Bezier menggunakan algoritma De Casteljau.
@@ -656,7 +835,11 @@ class CanvasManager:
             return
 
         # Hitung titik-titik kurva menggunakan algoritma Bezier
-        curve_pts = bezier_curve(obj.points, num_segments=200)
+        algo = (obj.algorithm or self.current_curve_algorithm or "Bezier").lower()
+        if "spline" in algo:
+            curve_pts = bspline_curve(obj.points, num_segments=200)
+        else:
+            curve_pts = bezier_curve(obj.points, num_segments=200)
 
         if len(curve_pts) < 2:
             return
@@ -678,13 +861,32 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
         # Gambar titik kontrol
-        for i, pt in enumerate(obj.points):
-            r = 3
+        for p in obj.points:
             dot_id = self.canvas.create_oval(
-                pt[0] - r, pt[1] - r, pt[0] + r, pt[1] + r,
-                fill="#FF6B6B", outline="#E53935"
+                p[0]-3, p[1]-3, p[0]+3, p[1]+3,
+                fill="#FF4444", outline=""
             )
             obj.canvas_ids.append(dot_id)
+
+    def _render_freehand(self, obj, dash):
+        """Render garis freehand (Pencil/Eraser)."""
+        if len(obj.points) < 2:
+            return
+            
+        coords = []
+        for p in obj.points:
+            coords.extend([p[0], p[1]])
+            
+        cid = self.canvas.create_line(
+            coords,
+            fill=obj.outline_color,
+            width=obj.line_width,
+            dash=dash,
+            smooth=True,
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND
+        )
+        obj.canvas_ids.append(cid)
 
     def _render_text(self, obj):
         """Render teks pada canvas."""
@@ -764,6 +966,11 @@ class CanvasManager:
             center = obj.get_center()
             obj.points = scale(obj.points, factor, center)
             obj.scale_factor *= factor
+        
+        elif transform_type == "reflect":
+            axis = kwargs.get('axis', 'x')
+            center = obj.get_center()
+            obj.points = reflect(obj.points, axis, center)
 
         self.render_object(obj)
 
@@ -901,21 +1108,22 @@ class CanvasManager:
             # Letakkan gambar di tengah canvas
             cx = self.canvas.winfo_width() // 2
             cy = self.canvas.winfo_height() // 2
+            
+            w = tk_img.width()
+            h = tk_img.height()
+            
+            x1, y1 = cx - w // 2, cy - h // 2
+            x2, y2 = x1 + w, y1 + h
 
             obj = DrawingObject(
                 obj_type="image",
-                points=[(cx - 50, cy - 50), (cx + 50, cy + 50)],
+                points=[(x1, y1), (x2, y2)],
                 image_path=filepath
             )
             obj.image_ref = tk_img  # Simpan referensi agar tidak di-GC
 
-            cid = self.canvas.create_image(cx - 50, cy - 50, anchor=tk.NW, image=tk_img)
+            cid = self.canvas.create_image(x1, y1, anchor=tk.NW, image=tk_img)
             obj.canvas_ids = [cid]
-
-            # Update points berdasarkan ukuran gambar actual
-            bbox = self.canvas.bbox(cid)
-            if bbox:
-                obj.points = [(bbox[0], bbox[1]), (bbox[2], bbox[3])]
 
             self.objects.append(obj)
 

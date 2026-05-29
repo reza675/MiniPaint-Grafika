@@ -9,6 +9,7 @@ Fitur:
   - Canvas menggambar interaktif
   - Tool: Line, Bezier, Rectangle, Circle, Triangle, Fill, Text, Select
   - Algoritma: DDA/Bresenham (garis), Bezier Curve, Flood Fill
+    - Kurva: Bezier / B-Spline
   - Atribut: Warna, Ketebalan, Style garis
   - Transformasi: Translasi, Rotasi, Scaling
   - Animasi: Bounce, Pulse, Spin
@@ -23,6 +24,12 @@ from tkinter import ttk, colorchooser, messagebox
 import sys
 import os
 
+try:
+    import ctypes
+    # Meminta Windows agar aplikasi tidak di-scale secara otomatis (membuatnya tajam)
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 # Tambahkan direktori saat ini ke path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -284,16 +291,13 @@ class MiniPaintApp:
         sep = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep.pack(fill=tk.X, padx=8, pady=(0, 8))
 
-        # Definisi tool dengan emoji
+        # List tool dasar yang disederhanakan
         tools = [
-            ("select",    "🔲  Select"),
-            ("line",      "📏  Line"),
-            ("bezier",    "〰  Bezier"),
-            ("rectangle", "⬜  Rectangle"),
-            ("circle",    "⭕  Circle"),
-            ("triangle",  "🔺  Triangle"),
-            ("fill",      "🪣  Fill"),
-            ("text",      "📝  Text"),
+            ("select",    "⬚   Select"),
+            ("pencil",    "✎   Pencil"),
+            ("eraser",    "▱   Eraser"),
+            ("fill",      "♨   Fill"),
+            ("text",      "T   Text"),
         ]
 
         self.tool_buttons = {}
@@ -301,13 +305,13 @@ class MiniPaintApp:
         for tool_id, tool_label in tools:
             btn = tk.Button(panel, text=tool_label,
                 bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
-                font=("Segoe UI", 9), relief=tk.FLAT,
-                anchor=tk.W, padx=10, pady=6,
+                font=("Segoe UI", 12), relief=tk.FLAT,
+                anchor=tk.W, justify=tk.LEFT, padx=16, pady=8,
                 cursor="hand2",
                 activebackground=self.ACCENT,
                 activeforeground="#FFFFFF",
                 command=lambda t=tool_id: self._on_tool_select(t))
-            btn.pack(fill=tk.X, padx=8, pady=2)
+            btn.pack(fill=tk.X, padx=8, pady=3)
             self.tool_buttons[tool_id] = btn
 
             # Hover effect
@@ -320,6 +324,40 @@ class MiniPaintApp:
         sep2 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep2.pack(fill=tk.X, padx=8, pady=12)
 
+        # Dropdown Shapes
+        tk.Label(panel, text="Shapes:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 8)).pack(padx=8, anchor=tk.W)
+        self.shape_var = tk.StringVar(value="Line")
+        self.shape_combo = ttk.Combobox(panel, textvariable=self.shape_var,
+                           values=["Line", "Curve", "Rectangle", "Circle", "Triangle", "Trapezium", "Ellipse"],
+                           state="readonly", width=14, font=("Segoe UI", 9))
+        self.shape_combo.pack(padx=8, pady=(2, 10))
+        self.shape_combo.bind("<<ComboboxSelected>>", self._on_shape_change)
+
+        # Separator
+        sep3 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
+        sep3.pack(fill=tk.X, padx=8, pady=8)
+
+        # Dropdown Line/Curve Algorithm
+        tk.Label(panel, text="Line/Curve Algo:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 8)).pack(padx=8, anchor=tk.W)
+
+        self.line_algo_var = tk.StringVar(value="Bresenham Line")
+        self.algo_combo = ttk.Combobox(panel, textvariable=self.line_algo_var,
+                           values=["Bresenham Line", "DDA Line", "Bezier Curve", "B-Spline Curve"],
+                           state="readonly", width=14, font=("Segoe UI", 9))
+        self.algo_combo.pack(padx=8, pady=(2, 10))
+        
+        self.algo_combo.bind("<<ComboboxSelected>>", self._on_algo_change)
+
+        # Dropdown Fill Algorithm
+        tk.Label(panel, text="Fill Algo:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 8)).pack(padx=8, anchor=tk.W)
+        
+        self.fill_algo_var = tk.StringVar(value="Flood Fill")
+        self.fill_combo = ttk.Combobox(panel, textvariable=self.fill_algo_var,
+                           values=["Flood Fill", "Boundary Fill"],
+                           state="readonly", width=14, font=("Segoe UI", 9))
+        self.fill_combo.pack(padx=8, pady=(2, 10))
+        self.fill_combo.bind("<<ComboboxSelected>>", self._on_fill_algo_change)
+        
         # Info algoritma
         self.algo_label = tk.Label(panel,
             text="Algorithm:\nBresenham Line",
@@ -513,6 +551,22 @@ class MiniPaintApp:
         # Tombol Rotate & Scale
         rs_frame = tk.Frame(panel, bg=self.BG_DARK)
         rs_frame.pack(fill=tk.X, padx=8, pady=4)
+        
+        btn_flip_h = tk.Button(rs_frame, text="↔ Flip Horizontal",
+            bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY, font=("Segoe UI", 8), relief=tk.FLAT, cursor="hand2", pady=4,
+            activebackground=self.ACCENT, activeforeground="#FFFFFF",
+            command=lambda: self._on_transform("reflect", axis='x'))
+        btn_flip_h.pack(fill=tk.X, pady=1)
+        btn_flip_h.bind("<Enter>", lambda e: btn_flip_h.config(bg=self.BG_HOVER))
+        btn_flip_h.bind("<Leave>", lambda e: btn_flip_h.config(bg=self.BG_LIGHT))
+
+        btn_flip_v = tk.Button(rs_frame, text="↕ Flip Vertical",
+            bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY, font=("Segoe UI", 8), relief=tk.FLAT, cursor="hand2", pady=4,
+            activebackground=self.ACCENT, activeforeground="#FFFFFF",
+            command=lambda: self._on_transform("reflect", axis='y'))
+        btn_flip_v.pack(fill=tk.X, pady=2)
+        btn_flip_v.bind("<Enter>", lambda e: btn_flip_v.config(bg=self.BG_HOVER))
+        btn_flip_v.bind("<Leave>", lambda e: btn_flip_v.config(bg=self.BG_LIGHT))
 
         btn_rotate = tk.Button(rs_frame, text="🔄 Rotate 15°",
             bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
@@ -595,17 +649,39 @@ class MiniPaintApp:
                     font=("Segoe UI", 9))
 
         # Update label algoritma
+        curve_algo = getattr(self.canvas_mgr, "current_curve_algorithm", "Bezier")
+        line_algo = getattr(self.canvas_mgr, "current_line_algorithm", "Bresenham")
+        fill_algo = getattr(self.canvas_mgr, "current_fill_algorithm", "Flood Fill")
+        
         algo_texts = {
-            "line": "Algorithm:\nBresenham Line\n(DDA also available)",
-            "bezier": "Algorithm:\nDe Casteljau\nBezier Curve\n(click 4 points)",
-            "fill": "Algorithm:\nFlood Fill\n(stack-based)",
+            "pencil": "Tool: Pencil\n(Freehand)",
+            "eraser": "Tool: Eraser\n(White Freehand)",
+            "line": f"Algorithm:\n{line_algo} Line",
+            "curve": f"Algorithm:\n{curve_algo} Curve\n(click 4 points)",
+            "bezier": f"Algorithm:\n{curve_algo} Curve\n(click 4 points)",
+            "fill": f"Algorithm:\n{fill_algo}",
             "select": "Mode:\nSelect & Transform",
             "rectangle": "Shape:\nRectangle",
             "circle": "Shape:\nCircle",
             "triangle": "Shape:\nTriangle",
+            "trapezium": "Shape:\nTrapezium",
+            "ellipse": "Shape:\nEllipse",
             "text": "Multimedia:\nText Input",
         }
         self.algo_label.config(text=algo_texts.get(tool, ""))
+
+    def _on_shape_change(self, event):
+        """Handler saat shape diubah dari dropdown."""
+        shape = self.shape_var.get().lower()
+        if shape == "curve":
+            shape = "bezier"
+        self._on_tool_select(shape)
+
+    def _on_fill_algo_change(self, event):
+        """Handler saat algoritma fill diubah."""
+        if self.canvas_mgr:
+            self.canvas_mgr.current_fill_algorithm = self.fill_algo_var.get()
+            self._on_tool_select("fill")
 
     def _on_choose_color(self):
         """Membuka color picker untuk outline color."""
@@ -616,6 +692,10 @@ class MiniPaintApp:
         if color[1]:
             self.canvas_mgr.current_color = color[1]
             self.color_indicator.config(bg=color[1])
+            if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
+                obj = self.canvas_mgr.selected_object
+                obj.outline_color = color[1]
+                self.canvas_mgr.render_object(obj)
 
     def _on_choose_fill_color(self):
         """Membuka color picker untuk fill color."""
@@ -627,21 +707,57 @@ class MiniPaintApp:
         if color[1]:
             self.canvas_mgr.current_fill_color = color[1]
             self.fill_indicator.config(bg=color[1], text="", fg=color[1])
+            if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
+                obj = self.canvas_mgr.selected_object
+                obj.fill_color = color[1]
+                self.canvas_mgr.render_object(obj)
 
     def _on_clear_fill_color(self):
         """Menghapus fill color (set ke None)."""
         self.canvas_mgr.current_fill_color = None
         self.fill_indicator.config(bg="#FFFFFF", text="None", fg="#999999")
+        if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
+            obj = self.canvas_mgr.selected_object
+            obj.fill_color = None
+            self.canvas_mgr.render_object(obj)
 
     def _on_width_change(self, value):
         """Handler saat ketebalan garis diubah."""
         w = int(float(value))
         self.canvas_mgr.current_line_width = w
         self.width_label.config(text=f"Line Width: {w} px")
+        if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
+            obj = self.canvas_mgr.selected_object
+            obj.line_width = w
+            self.canvas_mgr.render_object(obj)
 
     def _on_style_change(self, event):
         """Handler saat style garis diubah."""
         self.canvas_mgr.current_line_style = self.line_style_var.get()
+        if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
+            obj = self.canvas_mgr.selected_object
+            obj.line_style = self.line_style_var.get()
+            self.canvas_mgr.render_object(obj)
+    def _on_algo_change(self, event):
+        """Handler saat algoritma garis diubah."""
+        if not self.canvas_mgr:
+            return
+
+        selected = self.line_algo_var.get()
+        if "Line" in selected:
+            if "DDA" in selected:
+                self.canvas_mgr.current_line_algorithm = "DDA"
+            else:
+                self.canvas_mgr.current_line_algorithm = "Bresenham"
+            self.shape_var.set("Line")
+            self._on_tool_select("line")
+        else:
+            if "B-Spline" in selected:
+                self.canvas_mgr.current_curve_algorithm = "B-Spline"
+            else:
+                self.canvas_mgr.current_curve_algorithm = "Bezier"
+            self.shape_var.set("Curve")
+            self._on_tool_select("bezier")
 
     def _on_transform(self, transform_type, **kwargs):
         """Handler untuk tombol transformasi."""

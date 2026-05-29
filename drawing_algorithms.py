@@ -4,6 +4,7 @@ Implementasi algoritma grafika komputer:
   - Algoritma garis DDA (Digital Differential Analyzer)
   - Algoritma garis Bresenham
   - Algoritma kurva Bezier (kubik)
+    - Algoritma kurva B-Spline (kubik uniform)
   - Algoritma Flood Fill (iteratif dengan stack)
 """
 
@@ -173,6 +174,52 @@ def bezier_cubic(p0, p1, p2, p3, num_segments=200):
 
 
 # ============================================================
+# ALGORITMA B-SPLINE KUBIK (UNIFORM)
+# ============================================================
+
+def bspline_curve(control_points, num_segments=200):
+    """
+    Menggambar kurva B-Spline kubik (uniform) berdasarkan titik kontrol.
+
+    Minimal 4 titik kontrol. Jika > 4, kurva dibuat per segmen
+    (setiap segmen menggunakan 4 titik kontrol berurutan).
+
+    Args:
+        control_points: list of (x, y) — titik-titik kontrol
+        num_segments: jumlah segmen per batch (semakin banyak = halus)
+
+    Returns:
+        list of (float, float): titik-titik sepanjang kurva
+    """
+    if len(control_points) < 4:
+        return list(control_points)
+
+    def basis(t):
+        t2 = t * t
+        t3 = t2 * t
+        b0 = (-t3 + 3 * t2 - 3 * t + 1) / 6
+        b1 = (3 * t3 - 6 * t2 + 4) / 6
+        b2 = (-3 * t3 + 3 * t2 + 3 * t + 1) / 6
+        b3 = t3 / 6
+        return b0, b1, b2, b3
+
+    curve_points = []
+
+    # Jika hanya 4 titik, satu segmen saja
+    segments = len(control_points) - 3
+    for s in range(segments):
+        p0, p1, p2, p3 = control_points[s:s + 4]
+        for i in range(num_segments + 1):
+            t = i / num_segments
+            b0, b1, b2, b3 = basis(t)
+            x = b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0]
+            y = b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1]
+            curve_points.append((x, y))
+
+    return curve_points
+
+
+# ============================================================
 # ALGORITMA FLOOD FILL (ITERATIF)
 # ============================================================
 
@@ -278,6 +325,78 @@ def flood_fill(photo_image, start_x, start_y, fill_color_rgb, tolerance=30):
         for x in x_list:
             photo_image.put(fill_hex, (x, y))
     
+    return photo_image
+
+
+def boundary_fill(photo_image, start_x, start_y, fill_color_rgb, boundary_color_rgb, tolerance=30):
+    """
+    Mengisi area menggunakan algoritma Boundary Fill iteratif.
+    
+    Langkah-langkah:
+    1. Masukkan (start_x, start_y) ke dalam stack
+    2. Selama stack tidak kosong:
+       a. Pop (x, y) dari stack
+       b. Jika warna pixel bukan boundary_color dan bukan fill_color:
+          - Ubah warna pixel menjadi fill_color
+          - Push tetangganya (atas, bawah, kiri, kanan) ke stack
+    """
+    width = photo_image.width()
+    height = photo_image.height()
+    
+    if start_x < 0 or start_x >= width or start_y < 0 or start_y >= height:
+        return photo_image
+    
+    fill_r, fill_g, fill_b = fill_color_rgb
+    br, bg, bb = boundary_color_rgb
+    
+    def color_match(pixel_color, r, g, b):
+        if isinstance(pixel_color, tuple):
+            pr, pg, pb = pixel_color
+        else:
+            parts = str(pixel_color).split()
+            pr, pg, pb = int(parts[0]), int(parts[1]), int(parts[2])
+        return (abs(pr - r) <= tolerance and
+                abs(pg - g) <= tolerance and
+                abs(pb - b) <= tolerance)
+
+    fill_hex = f"#{fill_r:02x}{fill_g:02x}{fill_b:02x}"
+    
+    visited = set()
+    stack = [(start_x, start_y)]
+    pixels_to_fill = []
+    
+    while stack:
+        x, y = stack.pop()
+        
+        if (x, y) in visited:
+            continue
+        if x < 0 or x >= width or y < 0 or y >= height:
+            continue
+            
+        visited.add((x, y))
+        pixel = photo_image.get(x, y)
+        
+        # Jika warna saat ini adalah boundary_color atau sudah fill_color, abaikan
+        if color_match(pixel, br, bg, bb) or color_match(pixel, fill_r, fill_g, fill_b):
+            continue
+            
+        pixels_to_fill.append((x, y))
+        
+        stack.append((x + 1, y))
+        stack.append((x - 1, y))
+        stack.append((x, y + 1))
+        stack.append((x, y - 1))
+        
+    rows = {}
+    for (x, y) in pixels_to_fill:
+        if y not in rows:
+            rows[y] = []
+        rows[y].append(x)
+        
+    for y, x_list in rows.items():
+        for x in x_list:
+            photo_image.put(fill_hex, (x, y))
+            
     return photo_image
 
 

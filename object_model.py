@@ -49,7 +49,7 @@ class DrawingObject:
 
     def __init__(self, obj_type, points=None, outline_color="#000000",
                  fill_color=None, line_width=2, line_style="solid",
-                 text_content=None, image_path=None):
+                 text_content=None, image_path=None, algorithm=None):
         self.id = _generate_id()
         self.obj_type = obj_type
         self.points = points if points is not None else []
@@ -57,6 +57,7 @@ class DrawingObject:
         self.fill_color = fill_color
         self.line_width = line_width
         self.line_style = line_style
+        self.algorithm = algorithm
         self.rotation = 0.0
         self.scale_factor = 1.0
         self.text_content = text_content
@@ -92,6 +93,7 @@ class DrawingObject:
         new_obj.fill_color = self.fill_color
         new_obj.line_width = self.line_width
         new_obj.line_style = self.line_style
+        new_obj.algorithm = self.algorithm
         new_obj.rotation = self.rotation
         new_obj.scale_factor = self.scale_factor
         new_obj.text_content = self.text_content

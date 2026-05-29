@@ -121,3 +121,31 @@ def scale(points, factor, center=None):
         scaled.append((new_x, new_y))
     
     return scaled
+
+def reflect(points, axis='x', center=None):
+    """
+    Refleksi: membalikkan objek terhadap sumbu horizontal atau vertikal.
+    """
+    if not points:
+        return points
+    
+    if center is None:
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        center = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+    
+    cx, cy = center
+    reflected = []
+    
+    for (x, y) in points:
+        if axis == 'x':
+            # Flip Horizontal (Kiri-Kanan)
+            new_x = cx - (x - cx)
+            new_y = y
+        elif axis == 'y':
+            # Flip Vertical (Atas-Bawah)
+            new_x = x
+            new_y = cy - (y - cy)
+        reflected.append((new_x, new_y))
+        
+    return reflected
