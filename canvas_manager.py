@@ -17,7 +17,7 @@ from transform import translate, rotate, scale, reflect
 
 # Cek ketersediaan Pillow
 try:
-    from PIL import Image, ImageTk, ImageGrab
+    from PIL import Image, ImageTk, ImageGrab, ImageDraw
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -76,6 +76,13 @@ class CanvasManager:
         self.selected_object = None
         self.selection_box_ids = []
 
+        # Interactive selection transform state
+        self.selection_mode = None  # None | 'translate' | 'rotate'
+        self.selection_drag_start = (0, 0)
+        self.selection_orig_points = None
+        self.selection_orig_rotation = 0.0
+        self.selection_center = None
+
         # State bezier
         self.bezier_points = []
         self.bezier_preview_ids = []
@@ -96,18 +103,106 @@ class CanvasManager:
 
     def on_mouse_move(self, event):
         """Update posisi mouse di status bar."""
-        if self.status_callback:
-            self.status_callback(
-                f"Tool: {self.current_tool.capitalize()} | "
-                f"Objects: {len(self.objects)} | "
-                f"Position: ({event.x}, {event.y})"
-            )
+        x, y = event.x, event.y
+        # Change cursor if hovering over selection handles when in select mode
+        if self.current_tool == 'select':
+            items = self.canvas.find_overlapping(x, y, x, y)
+            cursor = None
+            for cid in items:
+                tags = self.canvas.gettags(cid)
+                if 'rotation_handle' in tags:
+                    cursor = 'exchange'  # rotate-like cursor
+                    break
+                if any(t.startswith('corner_') for t in tags):
+                    cursor = 'size_nw_se'  # generic scale cursor
+                    break
+                if 'selection_handle' in tags or 'selection_box' in tags:
+                    cursor = 'fleur'  # move
+                    break
+            if cursor:
+                try:
+                    self.canvas.config(cursor=cursor)
+                except Exception:
+                    pass
+            else:
+                # default status update
+                if self.status_callback:
+                    self.status_callback(
+                        f"Tool: {self.current_tool.capitalize()} | "
+                        f"Objects: {len(self.objects)} | "
+                        f"Position: ({x}, {y})"
+                    )
+        else:
+            if self.status_callback:
+                self.status_callback(
+                    f"Tool: {self.current_tool.capitalize()} | "
+                    f"Objects: {len(self.objects)} | "
+                    f"Position: ({x}, {y})"
+                )
 
     def on_mouse_down(self, event):
         """Handler saat mouse ditekan."""
         x, y = event.x, event.y
 
         if self.current_tool == "select":
+            # If clicking on selection visuals, start translate/rotate instead of re-selecting
+            clicked = False
+            # find small overlapping items at the click
+            items = self.canvas.find_overlapping(x, y, x, y)
+            for cid in items:
+                tags = self.canvas.gettags(cid)
+                if 'rotation_handle' in tags and self.selected_object:
+                    # Start rotation
+                    self.selection_mode = 'rotate'
+                    self.selection_center = self.selected_object.get_center()
+                    cx, cy = self.selection_center
+                    # angle in degrees from center to mouse
+                    self.selection_rotate_start_angle = math.degrees(math.atan2(y - cy, x - cx))
+                    self.selection_orig_points = [p for p in self.selected_object.points]
+                    self.selection_orig_rotation = getattr(self.selected_object, 'rotation', 0.0)
+                    # Save undo snapshot for the whole drag operation
+                    self._push_undo()
+                    clicked = True
+                    break
+                if any(t.startswith('corner_') for t in tags) and self.selected_object:
+                    # Start scale from corner
+                    corner_tag = [t for t in tags if t.startswith('corner_')][0]
+                    corner_idx = int(corner_tag.split('_')[1])
+                    self.selection_mode = 'scale'
+                    self.selection_scale_corner = corner_idx
+                    self.selection_orig_points = [p for p in self.selected_object.points]
+                    self.selection_scale_origin = self.selected_object.get_center()
+                    # store original scale metadata
+                    self.selection_orig_scale = getattr(self.selected_object, 'scale_factor', 1.0)
+                    self.selection_drag_start = (x, y)
+                    self._push_undo()
+                    clicked = True
+                    break
+                if ('selection_box' in tags or 'selection_handle' in tags) and self.selected_object:
+                    # Start translate
+                    self.selection_mode = 'translate'
+                    self.selection_drag_start = (x, y)
+                    self.selection_orig_points = [p for p in self.selected_object.points]
+                    self._push_undo()
+                    clicked = True
+                    break
+
+            # If click didn't hit visual handles but is inside selected object's bbox, start translate
+            if not clicked and self.selected_object:
+                bbox = self.selected_object.get_bbox()
+                margin = 8
+                if (bbox[0] - margin <= x <= bbox[2] + margin and
+                    bbox[1] - margin <= y <= bbox[3] + margin):
+                    self.selection_mode = 'translate'
+                    self.selection_drag_start = (x, y)
+                    self.selection_orig_points = [p for p in self.selected_object.points]
+                    self._push_undo()
+                    clicked = True
+
+            if clicked:
+                return
+
+            # Otherwise perform selection as before
             self._handle_select(x, y)
         elif self.current_tool == "fill":
             self._handle_fill(x, y)
@@ -127,6 +222,71 @@ class CanvasManager:
 
     def on_mouse_drag(self, event):
         """Handler saat mouse di-drag (preview rubber-banding)."""
+        # If an interactive selection transform is active, handle it
+        if self.current_tool == 'select' and self.selection_mode and self.selected_object:
+            x, y = event.x, event.y
+            obj = self.selected_object
+            if self.selection_mode == 'translate':
+                sx, sy = self.selection_drag_start
+                dx = x - sx
+                dy = y - sy
+                # Apply translation relative to original points
+                obj.points = translate(self.selection_orig_points, dx, dy)
+                self.render_object(obj)
+                return
+            elif self.selection_mode == 'rotate':
+                cx, cy = self.selection_center
+                start_angle = self.selection_rotate_start_angle
+                curr_angle = math.degrees(math.atan2(y - cy, x - cx))
+                delta = curr_angle - start_angle
+                # Rotate original points by delta
+                obj.points = rotate(self.selection_orig_points, delta, (cx, cy))
+                obj.rotation = self.selection_orig_rotation + delta
+                self.render_object(obj)
+                return
+            elif self.selection_mode == 'scale':
+                # Proportional scaling based on dragged corner
+                # Determine bbox of original points
+                orig_pts = self.selection_orig_points
+                xs = [p[0] for p in orig_pts]
+                ys = [p[1] for p in orig_pts]
+                x_min, x_max = min(xs), max(xs)
+                y_min, y_max = min(ys), max(ys)
+
+                # corner index mapping: 0=tl,1=tr,2=bl,3=br (as created)
+                corner_idx = getattr(self, 'selection_scale_corner', 3)
+                # opposite corner
+                opp = {0:3, 1:2, 2:1, 3:0}[corner_idx]
+                corners = [(x_min, y_min), (x_max, y_min), (x_min, y_max), (x_max, y_max)]
+                ox, oy = corners[opp]
+
+                # original distance from opposite corner to dragged corner
+                sx0, sy0 = corners[corner_idx]
+                # current mouse position (x,y) determines new corner position
+                nx, ny = x, y
+
+                # Compute scale factors along x and y (proportional scaling uses average)
+                orig_dx = sx0 - ox
+                orig_dy = sy0 - oy
+                new_dx = nx - ox
+                new_dy = ny - oy
+
+                # Avoid division by zero
+                sx_fact = (new_dx / orig_dx) if orig_dx != 0 else (new_dx / (abs(orig_dx) + 1e-6))
+                sy_fact = (new_dy / orig_dy) if orig_dy != 0 else (new_dy / (abs(orig_dy) + 1e-6))
+                # Use uniform scale = average of absolute factors, preserve sign
+                scale_factor = (abs(sx_fact) + abs(sy_fact)) / 2.0
+                # Determine final factor sign by area ratio
+                if (sx_fact < 0) ^ (sy_fact < 0):
+                    # If signs differ, keep positive scale (flip handled by reflect)
+                    pass
+
+                # Apply scaling around opposite corner (ox,oy)
+                obj.points = scale(self.selection_orig_points, scale_factor, (ox, oy))
+                obj.scale_factor = getattr(self, 'selection_orig_scale', 1.0) * scale_factor
+                self.render_object(obj)
+                return
+
         if not self.is_drawing:
             return
 
@@ -232,6 +392,16 @@ class CanvasManager:
 
     def on_mouse_up(self, event):
         """Handler saat mouse dilepas — finalisasi objek."""
+        # If we were doing an interactive selection transform, finalize it
+        if self.selection_mode is not None:
+            # End translate/rotate mode
+            self.selection_mode = None
+            self.selection_drag_start = (0, 0)
+            self.selection_orig_points = None
+            self.selection_center = None
+            # No further action required; render_object was called during drag
+            return
+
         if not self.is_drawing:
             return
 
@@ -446,12 +616,9 @@ class CanvasManager:
     def _flood_fill_pil(self, x, y, width, height):
         """Flood fill menggunakan Pillow untuk akses pixel."""
         try:
-            # Ambil screenshot area canvas (lebih stabil daripada PostScript)
-            x0 = self.canvas.winfo_rootx()
-            y0 = self.canvas.winfo_rooty()
-            x1 = x0 + width
-            y1 = y0 + height
-            img = ImageGrab.grab(bbox=(x0, y0, x1, y1)).convert('RGB')
+            # Render canvas contents into a PIL Image instead of screen capture.
+            # This avoids requiring screen access / ImageGrab permissions.
+            img = self._render_canvas_to_pil(width, height)
 
             # Ambil warna target
             if x < 0 or x >= img.width or y < 0 or y >= img.height:
@@ -536,6 +703,78 @@ class CanvasManager:
                 f"Flood fill gagal: {str(e)}\nPastikan Pillow terinstall dan akses screenshot diizinkan.")
             # Fallback ke metode sederhana
             self._flood_fill_simple(x, y)
+
+    def _render_canvas_to_pil(self, width, height):
+        """
+        Renderkan current objects menjadi sebuah PIL.Image RGB berukuran (width, height).
+
+        Tujuan: menghindari ImageGrab/screen capture. Metode ini mencoba menggambar
+        semua objek vektor yang kita simpan (lines, rectangles, circles, polygons,
+        text) pada sebuah ImageDraw. Untuk objek image, jika kita punya referensi
+        PhotoImage pada objek, kita paste-nya ke image hasil.
+
+        Catatan: Ini adalah renderer sederhana yang mencukupi untuk operasi fill.
+        Tidak menjamin kesempurnaan visual identik dengan tkinter.Canvas.
+        """
+        img = Image.new('RGB', (max(1, width), max(1, height)), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        for obj in self.objects:
+            try:
+                otype = obj.obj_type
+                if otype == 'line':
+                    p0, p1 = obj.points[0], obj.points[1]
+                    draw.line([p0, p1], fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype in ('rectangle', 'ellipse'):
+                    (x1, y1), (x2, y2) = obj.points[0], obj.points[1]
+                    box = [x1, y1, x2, y2]
+                    if otype == 'rectangle':
+                        if obj.fill_color:
+                            draw.rectangle(box, fill=obj.fill_color, outline=obj.outline_color, width=max(1, int(obj.line_width)))
+                        else:
+                            draw.rectangle(box, outline=obj.outline_color, width=max(1, int(obj.line_width)))
+                    else:
+                        if obj.fill_color:
+                            draw.ellipse(box, fill=obj.fill_color, outline=obj.outline_color, width=max(1, int(obj.line_width)))
+                        else:
+                            draw.ellipse(box, outline=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype in ('triangle', 'trapezium', 'bezier'):
+                    pts = [tuple(p) for p in obj.points]
+                    if obj.fill_color:
+                        draw.polygon(pts, fill=obj.fill_color, outline=obj.outline_color)
+                    else:
+                        draw.line(pts + [pts[0]], fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype == 'freehand':
+                    pts = [tuple(p) for p in obj.points]
+                    if len(pts) >= 2:
+                        draw.line(pts, fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype == 'text':
+                    # Simple text draw (no advanced font handling)
+                    xy = obj.points[0]
+                    draw.text((xy[0], xy[1]), str(obj.text_content or ''), fill=obj.outline_color)
+                elif otype == 'image':
+                    # If object has image_ref (PhotoImage), try to get its PIL image via _PhotoImage__photo (not portable)
+                    # Fallback: skip if we can't access image bytes
+                    if getattr(obj, 'image_ref', None) is not None:
+                        try:
+                            pil = obj.image_ref._PhotoImage__photo.convert('RGB')
+                            img.paste(pil, (int(obj.points[0][0]), int(obj.points[0][1])))
+                        except Exception:
+                            # Can't extract, skip
+                            pass
+                elif otype == 'fill':
+                    # If previous fills are stored as images, draw them
+                    if getattr(obj, 'image_ref', None) is not None:
+                        try:
+                            pil = obj.image_ref._PhotoImage__photo.convert('RGB')
+                            img.paste(pil, (0, 0))
+                        except Exception:
+                            pass
+            except Exception:
+                # Ignore rendering errors for individual objects
+                continue
+
+        return img
 
     def _flood_fill_simple(self, x, y):
         """
@@ -631,7 +870,8 @@ class CanvasManager:
         box_id = self.canvas.create_rectangle(
             bbox[0] - margin, bbox[1] - margin,
             bbox[2] + margin, bbox[3] + margin,
-            outline="#2196F3", width=2, dash=(6, 3)
+            outline="#2196F3", width=2, dash=(6, 3),
+            tags=("selection_box",)
         )
         self.selection_box_ids.append(box_id)
 
@@ -644,12 +884,29 @@ class CanvasManager:
             (bbox[2] + margin, bbox[3] + margin),
         ]
         for cx, cy in corners:
+            # Determine corner index for tagging
+            idx = corners.index((cx, cy))
             h_id = self.canvas.create_rectangle(
                 cx - handle_size, cy - handle_size,
                 cx + handle_size, cy + handle_size,
-                fill="#2196F3", outline="#1565C0"
+                fill="#2196F3", outline="#1565C0",
+                tags=("selection_handle", f"corner_{idx}")
             )
             self.selection_box_ids.append(h_id)
+
+        # Gambar rotation handle (circle) slightly above the top-right corner
+        rx = bbox[2] + margin + 12
+        ry = bbox[1] - margin - 12
+        rsize = 6
+        rot_id = self.canvas.create_oval(
+            rx - rsize, ry - rsize, rx + rsize, ry + rsize,
+            fill="#FFB74D", outline="#F57C00",
+            tags=("rotation_handle", "selection_handle")
+        )
+        # Optional: draw a small rotate icon (text) on top for affordance
+        txt_id = self.canvas.create_text(rx, ry, text="⤾", fill="#4E342E", font=("Segoe UI", 8), tags=("rotation_handle",))
+        self.selection_box_ids.append(rot_id)
+        self.selection_box_ids.append(txt_id)
 
     def _clear_selection_box(self):
         """Hapus visual bounding box seleksi."""
@@ -911,13 +1168,46 @@ class CanvasManager:
 
     def _render_image(self, obj):
         """Render gambar pada canvas."""
-        if not obj.image_ref or not obj.points:
+        if not obj.points:
             return
 
-        x, y = obj.points[0]
-        cid = self.canvas.create_image(
-            x, y, anchor=tk.NW, image=obj.image_ref
-        )
+        x1, y1 = obj.points[0]
+        # Determine target size from second point if present
+        if len(obj.points) > 1:
+            x2, y2 = obj.points[1]
+            w = max(1, int(round(x2 - x1)))
+            h = max(1, int(round(y2 - y1)))
+        else:
+            if getattr(obj, 'image_ref', None):
+                try:
+                    w = obj.image_ref.width()
+                    h = obj.image_ref.height()
+                except Exception:
+                    return
+            else:
+                return
+
+        # If PIL source exists, resize it to target size and create a PhotoImage
+        if HAS_PIL and getattr(obj, 'pil_image', None) is not None:
+            try:
+                pil_src = obj.pil_image
+                recreate = True
+                if getattr(obj, 'image_ref', None):
+                    try:
+                        if obj.image_ref.width() == w and obj.image_ref.height() == h:
+                            recreate = False
+                    except Exception:
+                        recreate = True
+
+                if recreate:
+                    resized = pil_src.resize((w, h), Image.LANCZOS)
+                    obj.image_ref = ImageTk.PhotoImage(resized)
+            except Exception:
+                # fallback to existing image_ref
+                pass
+
+        # Draw the image at top-left
+        cid = self.canvas.create_image(x1, y1, anchor=tk.NW, image=getattr(obj, 'image_ref', None))
         obj.canvas_ids.append(cid)
 
     # ============================================================
@@ -1121,6 +1411,14 @@ class CanvasManager:
                 image_path=filepath
             )
             obj.image_ref = tk_img  # Simpan referensi agar tidak di-GC
+            # Jika tersedia Pillow, simpan juga sumber PIL agar bisa di-resize/rotate
+            if HAS_PIL:
+                try:
+                    obj.pil_image = pil_img.copy()
+                except Exception:
+                    obj.pil_image = None
+            else:
+                obj.pil_image = None
 
             cid = self.canvas.create_image(x1, y1, anchor=tk.NW, image=tk_img)
             obj.canvas_ids = [cid]
