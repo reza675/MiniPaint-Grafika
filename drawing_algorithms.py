@@ -331,24 +331,19 @@ def flood_fill(photo_image, start_x, start_y, fill_color_rgb, tolerance=30):
 def boundary_fill(photo_image, start_x, start_y, fill_color_rgb, boundary_color_rgb, tolerance=30):
     """
     Mengisi area menggunakan algoritma Boundary Fill iteratif.
-    
-    Langkah-langkah:
-    1. Masukkan (start_x, start_y) ke dalam stack
-    2. Selama stack tidak kosong:
-       a. Pop (x, y) dari stack
-       b. Jika warna pixel bukan boundary_color dan bukan fill_color:
-          - Ubah warna pixel menjadi fill_color
-          - Push tetangganya (atas, bawah, kiri, kanan) ke stack
+
+    Boundary Fill berhenti saat bertemu warna batas (boundary_color),
+    berbeda dari Flood Fill yang mengikuti warna target awal.
     """
     width = photo_image.width()
     height = photo_image.height()
-    
+
     if start_x < 0 or start_x >= width or start_y < 0 or start_y >= height:
         return photo_image
-    
+
     fill_r, fill_g, fill_b = fill_color_rgb
     br, bg, bb = boundary_color_rgb
-    
+
     def color_match(pixel_color, r, g, b):
         if isinstance(pixel_color, tuple):
             pr, pg, pb = pixel_color
@@ -360,43 +355,34 @@ def boundary_fill(photo_image, start_x, start_y, fill_color_rgb, boundary_color_
                 abs(pb - b) <= tolerance)
 
     fill_hex = f"#{fill_r:02x}{fill_g:02x}{fill_b:02x}"
-    
     visited = set()
     stack = [(start_x, start_y)]
     pixels_to_fill = []
-    
+
     while stack:
         x, y = stack.pop()
-        
+
         if (x, y) in visited:
             continue
         if x < 0 or x >= width or y < 0 or y >= height:
             continue
-            
+
         visited.add((x, y))
         pixel = photo_image.get(x, y)
-        
-        # Jika warna saat ini adalah boundary_color atau sudah fill_color, abaikan
+
         if color_match(pixel, br, bg, bb) or color_match(pixel, fill_r, fill_g, fill_b):
             continue
-            
+
         pixels_to_fill.append((x, y))
-        
+
         stack.append((x + 1, y))
         stack.append((x - 1, y))
         stack.append((x, y + 1))
         stack.append((x, y - 1))
-        
-    rows = {}
-    for (x, y) in pixels_to_fill:
-        if y not in rows:
-            rows[y] = []
-        rows[y].append(x)
-        
-    for y, x_list in rows.items():
-        for x in x_list:
-            photo_image.put(fill_hex, (x, y))
-            
+
+    for x, y in pixels_to_fill:
+        photo_image.put(fill_hex, (x, y))
+
     return photo_image
 
 

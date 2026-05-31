@@ -75,6 +75,9 @@ class CanvasManager:
         # State seleksi
         self.selected_object = None
         self.selection_box_ids = []
+        self.marquee_start = None
+        self.marquee_rect_id = None
+        self.marquee_min_size = 5
 
         # Interactive selection transform state
         self.selection_mode = None  # None | 'translate' | 'rotate'
@@ -82,6 +85,7 @@ class CanvasManager:
         self.selection_orig_points = None
         self.selection_orig_rotation = 0.0
         self.selection_center = None
+        self.selection_control_index = None
 
         # State bezier
         self.bezier_points = []
@@ -95,6 +99,12 @@ class CanvasManager:
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        self.canvas.bind("<ButtonPress-2>", self.on_marquee_down)
+        self.canvas.bind("<B2-Motion>", self.on_marquee_drag)
+        self.canvas.bind("<ButtonRelease-2>", self.on_marquee_up)
+        self.canvas.bind("<ButtonPress-3>", self.on_marquee_down)
+        self.canvas.bind("<B3-Motion>", self.on_marquee_drag)
+        self.canvas.bind("<ButtonRelease-3>", self.on_marquee_up)
         self.canvas.bind("<Motion>", self.on_mouse_move)
 
     # ============================================================
@@ -106,6 +116,20 @@ class CanvasManager:
         x, y = event.x, event.y
         # Change cursor if hovering over selection handles when in select mode
         if self.current_tool == 'select':
+            if (self.selected_object and
+                self.selected_object.obj_type == 'bezier' and
+                self._find_control_point_at(self.selected_object, x, y) is not None):
+                try:
+                    self.canvas.config(cursor='hand2')
+                except Exception:
+                    pass
+                if self.status_callback:
+                    self.status_callback(
+                        f"Tool: Select | Objects: {len(self.objects)} | "
+                        f"Edit curve point: ({x}, {y})"
+                    )
+                return
+
             items = self.canvas.find_overlapping(x, y, x, y)
             cursor = None
             for cid in items:
@@ -147,6 +171,17 @@ class CanvasManager:
         if self.current_tool == "select":
             # If clicking on selection visuals, start translate/rotate instead of re-selecting
             clicked = False
+
+            control_idx = None
+            if self.selected_object and self.selected_object.obj_type == 'bezier':
+                control_idx = self._find_control_point_at(self.selected_object, x, y)
+            if control_idx is not None:
+                self.selection_mode = 'edit_curve_point'
+                self.selection_control_index = control_idx
+                self.selection_orig_points = [p for p in self.selected_object.points]
+                self._push_undo()
+                return
+
             # find small overlapping items at the click
             items = self.canvas.find_overlapping(x, y, x, y)
             for cid in items:
@@ -226,7 +261,13 @@ class CanvasManager:
         if self.current_tool == 'select' and self.selection_mode and self.selected_object:
             x, y = event.x, event.y
             obj = self.selected_object
-            if self.selection_mode == 'translate':
+            if self.selection_mode == 'edit_curve_point':
+                idx = self.selection_control_index
+                if idx is not None and 0 <= idx < len(obj.points):
+                    obj.points[idx] = (x, y)
+                    self.render_object(obj)
+                return
+            elif self.selection_mode == 'translate':
                 sx, sy = self.selection_drag_start
                 dx = x - sx
                 dy = y - sy
@@ -399,6 +440,7 @@ class CanvasManager:
             self.selection_drag_start = (0, 0)
             self.selection_orig_points = None
             self.selection_center = None
+            self.selection_control_index = None
             # No further action required; render_object was called during drag
             return
 
@@ -444,6 +486,51 @@ class CanvasManager:
             self.freehand_preview_ids = []
             self.freehand_points = []
             self.render_object(obj)
+
+    def on_marquee_down(self, event):
+        """Mulai area selection dengan klik kanan / middle click."""
+        self.marquee_start = (event.x, event.y)
+        self._delete_marquee_rect()
+        self.marquee_rect_id = self.canvas.create_rectangle(
+            event.x, event.y, event.x, event.y,
+            outline="#2563EB",
+            width=1,
+            dash=(5, 3),
+            fill="#93C5FD",
+            stipple="gray25",
+            tags=("marquee_select",)
+        )
+
+    def on_marquee_drag(self, event):
+        """Update kotak marquee saat mouse kanan ditahan dan digeser."""
+        if self.marquee_start is None or self.marquee_rect_id is None:
+            return
+
+        x0, y0 = self.marquee_start
+        self.canvas.coords(self.marquee_rect_id, x0, y0, event.x, event.y)
+
+        if self.status_callback:
+            x1, y1, x2, y2 = self._normalized_bbox(x0, y0, event.x, event.y)
+            self.status_callback(
+                f"Box Select | Area: {int(x2 - x1)} x {int(y2 - y1)} | "
+                f"Objects: {len(self.objects)}"
+            )
+
+    def on_marquee_up(self, event):
+        """Pilih object yang masuk area marquee."""
+        if self.marquee_start is None:
+            return
+
+        x0, y0 = self.marquee_start
+        x1, y1, x2, y2 = self._normalized_bbox(x0, y0, event.x, event.y)
+        self._delete_marquee_rect()
+        self.marquee_start = None
+
+        if (x2 - x1) < self.marquee_min_size and (y2 - y1) < self.marquee_min_size:
+            self._handle_select(event.x, event.y)
+            return
+
+        self._handle_area_select((x1, y1, x2, y2))
 
     # ============================================================
     # PEMBUATAN OBJEK
@@ -630,18 +717,33 @@ class CanvasManager:
         for obj in reversed(self.objects):
             if obj.obj_type == "fill":
                 continue
-            if obj.obj_type == "rectangle":
-                if self._point_in_bbox(x, y, obj.get_bbox()):
-                    return obj
-            elif obj.obj_type == "circle":
-                if self._point_in_circle(x, y, obj.points):
-                    return obj
-            elif obj.obj_type == "ellipse":
-                if self._point_in_ellipse(x, y, obj.points):
-                    return obj
-            elif obj.obj_type in ("triangle", "trapezium"):
-                if self._point_in_polygon(x, y, obj.points):
-                    return obj
+            if self._point_in_fillable_object(obj, x, y):
+                return obj
+        return None
+
+    def _point_in_fillable_object(self, obj, x, y):
+        """Cek apakah titik berada di area objek yang bisa punya fill_color."""
+        if obj.obj_type == "rectangle":
+            return self._point_in_bbox(x, y, obj.get_bbox())
+        if obj.obj_type == "circle":
+            return self._point_in_circle(x, y, obj.points)
+        if obj.obj_type == "ellipse":
+            return self._point_in_ellipse(x, y, obj.points)
+        if obj.obj_type in ("triangle", "trapezium"):
+            return self._point_in_polygon(x, y, obj.points)
+        if obj.obj_type == "freehand" and self._is_closed_path(obj.points):
+            return self._point_in_polygon(x, y, obj.points)
+        return False
+
+    def _find_control_point_at(self, obj, x, y, radius=10):
+        """Cari index titik kontrol kurva yang dekat dengan posisi mouse."""
+        if obj is None or obj.obj_type != "bezier":
+            return None
+
+        radius_sq = radius * radius
+        for idx, (px, py) in enumerate(obj.points):
+            if (x - px) ** 2 + (y - py) ** 2 <= radius_sq:
+                return idx
         return None
 
     def _point_in_bbox(self, x, y, bbox):
@@ -687,6 +789,42 @@ class CanvasManager:
             j = i
         return inside
 
+    def _is_closed_path(self, points, tolerance=12):
+        if len(points) < 3:
+            return False
+        sx, sy = points[0]
+        ex, ey = points[-1]
+        return (sx - ex) ** 2 + (sy - ey) ** 2 <= tolerance ** 2
+
+    def _point_in_fill_object(self, x, y, obj):
+        """Cek hit-test untuk layer fill raster berdasarkan alpha pixel."""
+        if len(obj.points) < 2:
+            return self._point_in_bbox(x, y, obj.get_bbox())
+
+        x1, y1 = obj.points[0]
+        x2, y2 = obj.points[1]
+        left, right = sorted((x1, x2))
+        top, bottom = sorted((y1, y2))
+
+        if not (left <= x <= right and top <= y <= bottom):
+            return False
+
+        pil_img = getattr(obj, 'pil_image', None)
+        if pil_img is None:
+            return True
+
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        local_x = int((x - left) * pil_img.width / width)
+        local_y = int((y - top) * pil_img.height / height)
+        local_x = max(0, min(pil_img.width - 1, local_x))
+        local_y = max(0, min(pil_img.height - 1, local_y))
+
+        try:
+            return pil_img.convert('RGBA').getpixel((local_x, local_y))[3] > 0
+        except Exception:
+            return True
+
     def _flood_fill_pil(self, x, y, width, height):
         """Flood fill menggunakan Pillow untuk akses pixel."""
         try:
@@ -710,13 +848,9 @@ class CanvasManager:
             tolerance = 30
             stack = [(x, y)]
             visited = set()
-            
+            filled_pixels = []
             algo = getattr(self, 'current_fill_algorithm', 'Flood Fill')
             is_boundary = ("boundary" in algo.lower())
-            
-            # Untuk boundary fill, asumsi boundary color adalah warna outline saat ini
-            # atau kita bisa asumsikan boundary adalah sesuatu yang beda dengan target_color
-            # Di sini kita gunakan warna saat ini (current_color) sebagai boundary color
             boundary_color = hex_to_rgb(self.current_color)
 
             while stack:
@@ -728,49 +862,58 @@ class CanvasManager:
                 visited.add((px, py))
 
                 current = pixels[px, py]
-                
                 if is_boundary:
-                    # Boundary Fill
-                    is_boundary_color = (abs(current[0] - boundary_color[0]) <= tolerance and
-                                         abs(current[1] - boundary_color[1]) <= tolerance and
-                                         abs(current[2] - boundary_color[2]) <= tolerance)
-                    is_fill_color = (abs(current[0] - fill_rgb[0]) <= tolerance and
-                                     abs(current[1] - fill_rgb[1]) <= tolerance and
-                                     abs(current[2] - fill_rgb[2]) <= tolerance)
-                    
-                    if not is_boundary_color and not is_fill_color:
-                        pixels[px, py] = fill_rgb
-                        stack.append((px + 1, py))
-                        stack.append((px - 1, py))
-                        stack.append((px, py + 1))
-                        stack.append((px, py - 1))
+                    is_boundary_color = (
+                        abs(current[0] - boundary_color[0]) <= tolerance and
+                        abs(current[1] - boundary_color[1]) <= tolerance and
+                        abs(current[2] - boundary_color[2]) <= tolerance
+                    )
+                    is_fill_color = (
+                        abs(current[0] - fill_rgb[0]) <= tolerance and
+                        abs(current[1] - fill_rgb[1]) <= tolerance and
+                        abs(current[2] - fill_rgb[2]) <= tolerance
+                    )
+                    should_fill = not is_boundary_color and not is_fill_color
                 else:
-                    # Flood Fill
-                    if (abs(current[0] - target_color[0]) <= tolerance and
+                    should_fill = (
+                        abs(current[0] - target_color[0]) <= tolerance and
                         abs(current[1] - target_color[1]) <= tolerance and
-                        abs(current[2] - target_color[2]) <= tolerance):
-                        pixels[px, py] = fill_rgb
-                        stack.append((px + 1, py))
-                        stack.append((px - 1, py))
-                        stack.append((px, py + 1))
-                        stack.append((px, py - 1))
+                        abs(current[2] - target_color[2]) <= tolerance
+                    )
 
-            # Tampilkan hasil pada canvas
-            tk_img = ImageTk.PhotoImage(img)
+                if should_fill:
+                    pixels[px, py] = fill_rgb
+                    filled_pixels.append((px, py))
+                    stack.append((px + 1, py))
+                    stack.append((px - 1, py))
+                    stack.append((px, py + 1))
+                    stack.append((px, py - 1))
+
+            if not filled_pixels:
+                return
+
+            min_x = min(px for px, _ in filled_pixels)
+            min_y = min(py for _, py in filled_pixels)
+            max_x = max(px for px, _ in filled_pixels)
+            max_y = max(py for _, py in filled_pixels)
+            layer = Image.new('RGBA', (max_x - min_x + 1, max_y - min_y + 1), (0, 0, 0, 0))
+            layer_pixels = layer.load()
+            for px, py in filled_pixels:
+                layer_pixels[px - min_x, py - min_y] = (*fill_rgb, 255)
+
+            # Simpan fill sebagai layer transparan agar bisa di-render ulang,
+            # di-fill lagi, dan dipilih dari area warnanya.
+            tk_img = ImageTk.PhotoImage(layer)
             fill_obj = DrawingObject(
                 obj_type="fill",
-                points=[(0, 0)],
+                points=[(min_x, min_y), (max_x + 1, max_y + 1)],
                 outline_color=fill_color,
                 fill_color=fill_color
             )
             fill_obj.image_ref = tk_img
-            img_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
-            fill_obj.canvas_ids = [img_id]
+            fill_obj.pil_image = layer
             self.objects.append(fill_obj)
-
-            # Re-render semua objek di atas fill
-            # (fill harus di background)
-            self.canvas.tag_lower(img_id)
+            self.render_all()
 
         except Exception as e:
             messagebox.showwarning("Fill Error",
@@ -793,7 +936,12 @@ class CanvasManager:
         img = Image.new('RGB', (max(1, width), max(1, height)), (255, 255, 255))
         draw = ImageDraw.Draw(img)
 
-        for obj in self.objects:
+        ordered_objects = (
+            [obj for obj in self.objects if obj.obj_type == 'fill'] +
+            [obj for obj in self.objects if obj.obj_type != 'fill']
+        )
+
+        for obj in ordered_objects:
             try:
                 otype = obj.obj_type
                 if otype == 'line':
@@ -823,6 +971,8 @@ class CanvasManager:
                     if len(pts) >= 2:
                         # Rasterize freehand slightly thicker and close near-closed paths
                         w = max(1, int(obj.line_width) + 1)
+                        if obj.fill_color and self._is_closed_path(pts):
+                            draw.polygon(pts, fill=obj.fill_color)
                         draw.line(pts, fill=obj.outline_color, width=w)
                         # Seal tiny gaps at joints
                         r = max(1, int(w / 2))
@@ -838,28 +988,41 @@ class CanvasManager:
                     xy = obj.points[0]
                     draw.text((xy[0], xy[1]), str(obj.text_content or ''), fill=obj.outline_color)
                 elif otype == 'image':
-                    # If object has image_ref (PhotoImage), try to get its PIL image via _PhotoImage__photo (not portable)
-                    # Fallback: skip if we can't access image bytes
-                    if getattr(obj, 'image_ref', None) is not None:
-                        try:
-                            pil = obj.image_ref._PhotoImage__photo.convert('RGB')
-                            img.paste(pil, (int(obj.points[0][0]), int(obj.points[0][1])))
-                        except Exception:
-                            # Can't extract, skip
-                            pass
+                    pil = getattr(obj, 'pil_image', None)
+                    if pil is not None and obj.points:
+                        self._paste_pil_layer(img, pil, obj.points)
                 elif otype == 'fill':
-                    # If previous fills are stored as images, draw them
-                    if getattr(obj, 'image_ref', None) is not None:
-                        try:
-                            pil = obj.image_ref._PhotoImage__photo.convert('RGB')
-                            img.paste(pil, (0, 0))
-                        except Exception:
-                            pass
+                    pil = getattr(obj, 'pil_image', None)
+                    if pil is not None:
+                        self._paste_pil_layer(img, pil, obj.points)
             except Exception:
                 # Ignore rendering errors for individual objects
                 continue
 
         return img
+
+    def _paste_pil_layer(self, base_img, layer_img, points):
+        """Paste PIL image ke base dengan dukungan alpha dan resize bbox."""
+        if not points:
+            return
+
+        x1, y1 = points[0]
+        if len(points) > 1:
+            x2, y2 = points[1]
+            left, right = sorted((x1, x2))
+            top, bottom = sorted((y1, y2))
+            target_w = max(1, int(round(right - left)))
+            target_h = max(1, int(round(bottom - top)))
+            paste_x, paste_y = left, top
+        else:
+            target_w, target_h = layer_img.size
+            paste_x, paste_y = x1, y1
+
+        layer = layer_img.convert('RGBA')
+        if layer.size != (target_w, target_h):
+            layer = layer.resize((target_w, target_h), Image.LANCZOS)
+
+        base_img.paste(layer.convert('RGB'), (int(round(paste_x)), int(round(paste_y))), layer)
 
     def _flood_fill_simple(self, x, y):
         """
@@ -874,14 +1037,14 @@ class CanvasManager:
         # Metode sederhana: gambar oval besar di posisi klik
         # sebagai representasi fill
         fill_color = self.current_fill_color or self.current_color
+        r = 50  # Radius fill area
         fill_obj = DrawingObject(
             obj_type="fill",
-            points=[(x, y)],
+            points=[(x - r, y - r), (x + r, y + r)],
             outline_color=fill_color,
             fill_color=fill_color
         )
 
-        r = 50  # Radius fill area
         fill_id = self.canvas.create_oval(
             x - r, y - r, x + r, y + r,
             fill=fill_color,
@@ -931,19 +1094,91 @@ class CanvasManager:
         # Cari objek dari yang terbaru (di atas)
         for obj in reversed(self.objects):
             if obj.obj_type == "fill":
-                continue  # Skip fill objects untuk seleksi
+                if self._point_in_fill_object(x, y, obj):
+                    merged_target = self._merge_fill_into_target(obj, x, y)
+                    if merged_target is not None:
+                        self.selected_object = merged_target
+                        self.render_all()
+                        return
+                continue
 
             bbox = obj.get_bbox()
             margin = max(10, obj.line_width + 5)
 
-            if (bbox[0] - margin <= x <= bbox[2] + margin and
-                bbox[1] - margin <= y <= bbox[3] + margin):
+            is_inside_filled_area = obj.fill_color and self._point_in_fillable_object(obj, x, y)
+            is_inside_bbox = (
+                bbox[0] - margin <= x <= bbox[2] + margin and
+                bbox[1] - margin <= y <= bbox[3] + margin
+            )
+
+            if is_inside_filled_area or is_inside_bbox:
                 self.selected_object = obj
                 self._draw_selection_box(obj)
                 return
 
         # Tidak ada objek yang ditemukan
         self.selected_object = None
+
+    def _handle_area_select(self, area_bbox):
+        """Pilih object paling atas yang bersentuhan dengan kotak marquee."""
+        self._clear_selection()
+
+        for obj in reversed(self.objects):
+            if obj.obj_type == "fill":
+                continue
+
+            if self._bboxes_intersect(area_bbox, obj.get_bbox()):
+                self.selected_object = obj
+                self._draw_selection_box(obj)
+                if self.status_callback:
+                    self.status_callback(
+                        f"Box Select | Selected: {obj.obj_type} #{obj.id} | "
+                        f"Objects: {len(self.objects)}"
+                    )
+                return
+
+        self.selected_object = None
+        if self.status_callback:
+            self.status_callback(
+                f"Box Select | No object selected | Objects: {len(self.objects)}"
+            )
+
+    def _normalized_bbox(self, x1, y1, x2, y2):
+        return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+
+    def _bboxes_intersect(self, a, b):
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        return not (ax2 < bx1 or bx2 < ax1 or ay2 < by1 or by2 < ay1)
+
+    def _delete_marquee_rect(self):
+        if self.marquee_rect_id is not None:
+            self.canvas.delete(self.marquee_rect_id)
+            self.marquee_rect_id = None
+
+    def _merge_fill_into_target(self, fill_obj, x, y):
+        """
+        Gabungkan layer fill raster ke object vektor di bawahnya.
+        Ini mencegah fill dan border terpilih sebagai dua object berbeda.
+        """
+        fill_color = fill_obj.fill_color or fill_obj.outline_color
+
+        mergeable_types = {"rectangle", "circle", "ellipse", "triangle", "trapezium", "freehand"}
+
+        for candidate in reversed(self.objects):
+            if candidate.id == fill_obj.id or candidate.obj_type == "fill":
+                continue
+            if candidate.obj_type not in mergeable_types:
+                continue
+
+            if self._point_in_fillable_object(candidate, x, y):
+                candidate.fill_color = fill_color
+                for cid in fill_obj.canvas_ids:
+                    self.canvas.delete(cid)
+                self.objects = [obj for obj in self.objects if obj.id != fill_obj.id]
+                return candidate
+
+        return None
 
     def _draw_selection_box(self, obj):
         """Menggambar bounding box seleksi di sekitar objek."""
@@ -1039,7 +1274,7 @@ class CanvasManager:
         elif obj.obj_type == "image":
             self._render_image(obj)
         elif obj.obj_type == "fill":
-            pass  # Fill sudah di-render saat dibuat
+            self._render_fill(obj)
         elif obj.obj_type == "freehand":
             self._render_freehand(obj, dash)
 
@@ -1218,6 +1453,15 @@ class CanvasManager:
         coords = []
         for p in obj.points:
             coords.extend([p[0], p[1]])
+
+        if obj.fill_color and self._is_closed_path(obj.points):
+            fill_id = self.canvas.create_polygon(
+                coords,
+                fill=obj.fill_color,
+                outline='',
+                smooth=True
+            )
+            obj.canvas_ids.append(fill_id)
             
         cid = self.canvas.create_line(
             coords,
@@ -1295,6 +1539,42 @@ class CanvasManager:
         cid = self.canvas.create_image(x1, y1, anchor=tk.NW, image=getattr(obj, 'image_ref', None))
         obj.canvas_ids.append(cid)
 
+    def _render_fill(self, obj):
+        """Render layer fill raster transparan."""
+        if not obj.points:
+            return
+
+        pil_img = getattr(obj, 'pil_image', None)
+        if pil_img is None:
+            # Fallback untuk fill sederhana tanpa Pillow.
+            if len(obj.points) >= 2:
+                x1, y1 = obj.points[0]
+                x2, y2 = obj.points[1]
+                cid = self.canvas.create_oval(
+                    x1, y1, x2, y2,
+                    fill=obj.fill_color or obj.outline_color,
+                    outline=""
+                )
+                obj.canvas_ids.append(cid)
+            return
+
+        x1, y1 = obj.points[0]
+        draw_x, draw_y = x1, y1
+        layer = pil_img
+        if len(obj.points) > 1:
+            x2, y2 = obj.points[1]
+            left, right = sorted((x1, x2))
+            top, bottom = sorted((y1, y2))
+            draw_x, draw_y = left, top
+            w = max(1, int(round(right - left)))
+            h = max(1, int(round(bottom - top)))
+            if layer.size != (w, h):
+                layer = layer.resize((w, h), Image.LANCZOS)
+
+        obj.image_ref = ImageTk.PhotoImage(layer)
+        cid = self.canvas.create_image(draw_x, draw_y, anchor=tk.NW, image=obj.image_ref)
+        obj.canvas_ids.append(cid)
+
     # ============================================================
     # RENDER ALL
     # ============================================================
@@ -1304,7 +1584,19 @@ class CanvasManager:
         self.canvas.delete("all")
         for obj in self.objects:
             obj.canvas_ids = []
-            self.render_object(obj)
+
+        # Layer fill raster harus berada di bawah outline/shape,
+        # tapi urutan antar-fill tetap dipertahankan agar fill ulang terlihat.
+        for obj in self.objects:
+            if obj.obj_type == "fill":
+                self.render_object(obj)
+
+        for obj in self.objects:
+            if obj.obj_type != "fill":
+                self.render_object(obj)
+
+        if self.selected_object:
+            self._draw_selection_box(self.selected_object)
 
     # ============================================================
     # TRANSFORMASI
@@ -1347,7 +1639,10 @@ class CanvasManager:
             center = obj.get_center()
             obj.points = reflect(obj.points, axis, center)
 
-        self.render_object(obj)
+        if obj.obj_type == "fill":
+            self.render_all()
+        else:
+            self.render_object(obj)
 
     # ============================================================
     # UNDO
@@ -1373,10 +1668,7 @@ class CanvasManager:
         self.canvas.delete("all")
         self.objects = snapshot
 
-        # Re-render semua objek
-        for obj in self.objects:
-            obj.canvas_ids = []
-            self.render_object(obj)
+        self.render_all()
 
     # ============================================================
     # CLEAR CANVAS

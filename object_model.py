@@ -44,6 +44,7 @@ class DrawingObject:
       - text_content: isi teks (untuk objek tipe text)
       - image_path: path file gambar (untuk objek tipe image)
       - image_ref: referensi PhotoImage (agar tidak di-garbage-collect)
+      - pil_image: referensi PIL.Image untuk render ulang image/fill
       - canvas_ids: list ID item canvas Tkinter yang merepresentasikan objek ini
     """
 
@@ -63,6 +64,7 @@ class DrawingObject:
         self.text_content = text_content
         self.image_path = image_path
         self.image_ref = None  # Simpan referensi PhotoImage
+        self.pil_image = None
         self.canvas_ids = []
 
     def get_center(self):
@@ -99,6 +101,11 @@ class DrawingObject:
         new_obj.text_content = self.text_content
         new_obj.image_path = self.image_path
         new_obj.image_ref = self.image_ref
+        pil_image = getattr(self, 'pil_image', None)
+        try:
+            new_obj.pil_image = pil_image.copy() if pil_image is not None else None
+        except Exception:
+            new_obj.pil_image = pil_image
         new_obj.canvas_ids = []  # Canvas IDs tidak di-copy
         return new_obj
 
