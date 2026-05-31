@@ -471,7 +471,7 @@ class CanvasManager:
             obj_type="rectangle",
             points=[(x1, y1), (x2, y2)],
             outline_color=self.current_color,
-            fill_color=self.current_fill_color,
+            fill_color=None,
             line_width=self.current_line_width,
             line_style=self.current_line_style
         )
@@ -487,7 +487,7 @@ class CanvasManager:
             obj_type="circle",
             points=[(cx, cy), (cx + r, cy)],  # Pusat + titik di radius
             outline_color=self.current_color,
-            fill_color=self.current_fill_color,
+            fill_color=None,
             line_width=self.current_line_width,
             line_style=self.current_line_style
         )
@@ -501,7 +501,7 @@ class CanvasManager:
             obj_type="triangle",
             points=[(mid_x, y1), (x1, y2), (x2, y2)],
             outline_color=self.current_color,
-            fill_color=self.current_fill_color,
+            fill_color=None,
             line_width=self.current_line_width,
             line_style=self.current_line_style
         )
@@ -521,7 +521,7 @@ class CanvasManager:
             obj_type="trapezium",
             points=points,
             outline_color=self.current_color,
-            fill_color=self.current_fill_color,
+            fill_color=None,
             line_width=self.current_line_width,
             line_style=self.current_line_style
         )
@@ -534,7 +534,7 @@ class CanvasManager:
             obj_type="ellipse",
             points=[(x1, y1), (x2, y2)],
             outline_color=self.current_color,
-            fill_color=self.current_fill_color,
+            fill_color=None,
             line_width=self.current_line_width,
             line_style=self.current_line_style
         )
@@ -601,6 +601,18 @@ class CanvasManager:
         Menangani klik untuk tool Fill.
         Menggunakan algoritma Flood Fill.
         """
+        fill_color = self.current_fill_color or self.current_color
+
+        # Jika klik pada shape, isi shape tersebut dulu
+        target = self._find_fill_target(x, y)
+        if target is not None:
+            if target.fill_color == fill_color:
+                return
+            self._push_undo()
+            target.fill_color = fill_color
+            self.render_object(target)
+            return
+
         self._push_undo()
 
         # Ambil snapshot canvas sebagai PhotoImage
@@ -612,6 +624,68 @@ class CanvasManager:
             self._flood_fill_pil(x, y, canvas_width, canvas_height)
         else:
             self._flood_fill_simple(x, y)
+
+    def _find_fill_target(self, x, y):
+        """Cari shape yang bisa di-fill pada posisi klik."""
+        for obj in reversed(self.objects):
+            if obj.obj_type == "fill":
+                continue
+            if obj.obj_type == "rectangle":
+                if self._point_in_bbox(x, y, obj.get_bbox()):
+                    return obj
+            elif obj.obj_type == "circle":
+                if self._point_in_circle(x, y, obj.points):
+                    return obj
+            elif obj.obj_type == "ellipse":
+                if self._point_in_ellipse(x, y, obj.points):
+                    return obj
+            elif obj.obj_type in ("triangle", "trapezium"):
+                if self._point_in_polygon(x, y, obj.points):
+                    return obj
+        return None
+
+    def _point_in_bbox(self, x, y, bbox):
+        x1, y1, x2, y2 = bbox
+        return x1 <= x <= x2 and y1 <= y <= y2
+
+    def _point_in_circle(self, x, y, points):
+        if len(points) < 2:
+            return False
+        cx, cy = points[0]
+        rx, ry = points[1]
+        r = math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
+        return (x - cx) ** 2 + (y - cy) ** 2 <= r ** 2
+
+    def _point_in_ellipse(self, x, y, points):
+        if len(points) < 2:
+            return False
+        x1, y1 = points[0]
+        x2, y2 = points[1]
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+        rx = abs(x2 - x1) / 2
+        ry = abs(y2 - y1) / 2
+        if rx == 0 or ry == 0:
+            return False
+        nx = (x - cx) / rx
+        ny = (y - cy) / ry
+        return (nx * nx + ny * ny) <= 1.0
+
+    def _point_in_polygon(self, x, y, points):
+        if len(points) < 3:
+            return False
+        inside = False
+        j = len(points) - 1
+        for i in range(len(points)):
+            xi, yi = points[i]
+            xj, yj = points[j]
+            intersects = ((yi > y) != (yj > y)) and (
+                x < (xj - xi) * (y - yi) / ((yj - yi) if (yj - yi) != 0 else 1e-6) + xi
+            )
+            if intersects:
+                inside = not inside
+            j = i
+        return inside
 
     def _flood_fill_pil(self, x, y, width, height):
         """Flood fill menggunakan Pillow untuk akses pixel."""
@@ -747,7 +821,18 @@ class CanvasManager:
                 elif otype == 'freehand':
                     pts = [tuple(p) for p in obj.points]
                     if len(pts) >= 2:
-                        draw.line(pts, fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                        # Rasterize freehand slightly thicker and close near-closed paths
+                        w = max(1, int(obj.line_width) + 1)
+                        draw.line(pts, fill=obj.outline_color, width=w)
+                        # Seal tiny gaps at joints
+                        r = max(1, int(w / 2))
+                        for px, py in pts:
+                            draw.ellipse([px - r, py - r, px + r, py + r], fill=obj.outline_color, outline=obj.outline_color)
+                        # If start/end are very close, connect them to close the shape
+                        sx, sy = pts[0]
+                        ex, ey = pts[-1]
+                        if (sx - ex) ** 2 + (sy - ey) ** 2 <= 36:
+                            draw.line([(sx, sy), (ex, ey)], fill=obj.outline_color, width=w)
                 elif otype == 'text':
                     # Simple text draw (no advanced font handling)
                     xy = obj.points[0]
