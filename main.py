@@ -76,7 +76,9 @@ class MiniPaintApp:
         self.anim_type_var = tk.StringVar(value="bounce")
 
         # Controller animasi
-        self.animation_controller = AnimationController()
+        self.animation_controller = AnimationController(
+            on_stop=self._on_animation_stopped
+        )
 
         # Canvas manager akan diinisialisasi di _build_canvas
         self.canvas_mgr = None
@@ -255,21 +257,22 @@ class MiniPaintApp:
             font=("Segoe UI", 13))
         anim_combo.pack(side=tk.LEFT, padx=2)
 
-        btn_animate = tk.Button(inner, text="▶ Animate",
+        self.btn_animate = tk.Button(inner, text="▶ Animate",
             bg="#10B981", fg="#FFFFFF",
             font=("Segoe UI", 13, "bold"), relief=tk.FLAT,
             padx=10, pady=3, cursor="hand2",
             activebackground="#059669",
             command=self._on_animate)
-        btn_animate.pack(side=tk.LEFT, padx=2)
+        self.btn_animate.pack(side=tk.LEFT, padx=2)
 
-        btn_stop = tk.Button(inner, text="⏹ Stop",
+        self.btn_stop = tk.Button(inner, text="⏹ Stop",
             bg=self.DANGER, fg="#FFFFFF",
             font=("Segoe UI", 13, "bold"), relief=tk.FLAT,
             padx=10, pady=3, cursor="hand2",
             activebackground="#DC2626",
             command=self._on_stop_animation)
-        btn_stop.pack(side=tk.LEFT, padx=2)
+        self.btn_stop.pack(side=tk.LEFT, padx=2)
+        self.btn_stop.config(state=tk.DISABLED, cursor="arrow")
 
     # ============================================================
     # PANEL TOOLS (KIRI)
@@ -693,9 +696,9 @@ class MiniPaintApp:
             self.canvas_mgr.current_color = color[1]
             self.color_indicator.config(bg=color[1])
             if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
-                obj = self.canvas_mgr.selected_object
-                obj.outline_color = color[1]
-                self.canvas_mgr.render_object(obj)
+                for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
+                    obj.outline_color = color[1]
+                self.canvas_mgr.render_all()
 
     def _on_choose_fill_color(self):
         """Membuka color picker untuk fill color."""
@@ -708,18 +711,18 @@ class MiniPaintApp:
             self.canvas_mgr.current_fill_color = color[1]
             self.fill_indicator.config(bg=color[1], text="", fg=color[1])
             if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
-                obj = self.canvas_mgr.selected_object
-                obj.fill_color = color[1]
-                self.canvas_mgr.render_object(obj)
+                for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
+                    obj.fill_color = color[1]
+                self.canvas_mgr.render_all()
 
     def _on_clear_fill_color(self):
         """Menghapus fill color (set ke None)."""
         self.canvas_mgr.current_fill_color = None
         self.fill_indicator.config(bg="#FFFFFF", text="None", fg="#999999")
         if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
-            obj = self.canvas_mgr.selected_object
-            obj.fill_color = None
-            self.canvas_mgr.render_object(obj)
+            for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
+                obj.fill_color = None
+            self.canvas_mgr.render_all()
 
     def _on_width_change(self, value):
         """Handler saat ketebalan garis diubah."""
@@ -727,17 +730,17 @@ class MiniPaintApp:
         self.canvas_mgr.current_line_width = w
         self.width_label.config(text=f"Line Width: {w} px")
         if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
-            obj = self.canvas_mgr.selected_object
-            obj.line_width = w
-            self.canvas_mgr.render_object(obj)
+            for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
+                obj.line_width = w
+            self.canvas_mgr.render_all()
 
     def _on_style_change(self, event):
         """Handler saat style garis diubah."""
         self.canvas_mgr.current_line_style = self.line_style_var.get()
         if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
-            obj = self.canvas_mgr.selected_object
-            obj.line_style = self.line_style_var.get()
-            self.canvas_mgr.render_object(obj)
+            for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
+                obj.line_style = self.line_style_var.get()
+            self.canvas_mgr.render_all()
     def _on_algo_change(self, event):
         """Handler saat algoritma garis diubah."""
         if not self.canvas_mgr:
@@ -765,6 +768,7 @@ class MiniPaintApp:
 
     def _on_undo(self):
         """Handler tombol Undo."""
+        self.animation_controller.stop()
         self.canvas_mgr.undo()
 
     def _on_save(self):
@@ -773,6 +777,7 @@ class MiniPaintApp:
 
     def _on_clear_canvas(self):
         """Handler tombol New/Clear Canvas."""
+        self.animation_controller.stop()
         self.canvas_mgr.clear_canvas()
 
     def _on_insert_image(self):
@@ -794,10 +799,27 @@ class MiniPaintApp:
             self.root,
             anim_type
         )
+        self._set_animation_ui_running(True)
 
     def _on_stop_animation(self):
         """Menghentikan animasi."""
         self.animation_controller.stop()
+
+    def _on_animation_stopped(self):
+        """Callback saat animasi berhenti dari tombol, delete, atau target hilang."""
+        self._set_animation_ui_running(False)
+
+    def _set_animation_ui_running(self, is_running):
+        """Update state tombol animasi."""
+        if not hasattr(self, "btn_animate") or not hasattr(self, "btn_stop"):
+            return
+
+        if is_running:
+            self.btn_animate.config(state=tk.DISABLED, cursor="arrow")
+            self.btn_stop.config(state=tk.NORMAL, cursor="hand2")
+        else:
+            self.btn_animate.config(state=tk.NORMAL, cursor="hand2")
+            self.btn_stop.config(state=tk.DISABLED, cursor="arrow")
 
     def _delete_selected(self):
         """Menghapus objek yang dipilih."""
@@ -805,15 +827,20 @@ class MiniPaintApp:
             return
 
         self.canvas_mgr._push_undo()
-        obj = self.canvas_mgr.selected_object
+        selected = self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]
+        selected_ids = {obj.id for obj in selected}
+        if (self.animation_controller.target_obj and
+            self.animation_controller.target_obj.id in selected_ids):
+            self.animation_controller.stop()
 
         # Hapus dari canvas
-        for cid in obj.canvas_ids:
-            self.canvas.delete(cid)
+        for obj in selected:
+            for cid in obj.canvas_ids:
+                self.canvas.delete(cid)
 
         # Hapus dari daftar objek
         self.canvas_mgr.objects = [
-            o for o in self.canvas_mgr.objects if o.id != obj.id
+            o for o in self.canvas_mgr.objects if o.id not in selected_ids
         ]
         self.canvas_mgr._clear_selection()
 

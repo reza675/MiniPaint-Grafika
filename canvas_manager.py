@@ -74,15 +74,18 @@ class CanvasManager:
 
         # State seleksi
         self.selected_object = None
+        self.selected_objects = []
         self.selection_box_ids = []
         self.marquee_start = None
         self.marquee_rect_id = None
         self.marquee_min_size = 5
+        self._suppress_selection_refresh = False
 
         # Interactive selection transform state
         self.selection_mode = None  # None | 'translate' | 'rotate'
         self.selection_drag_start = (0, 0)
         self.selection_orig_points = None
+        self.selection_orig_points_by_id = None
         self.selection_orig_rotation = 0.0
         self.selection_center = None
         self.selection_control_index = None
@@ -218,6 +221,10 @@ class CanvasManager:
                     self.selection_mode = 'translate'
                     self.selection_drag_start = (x, y)
                     self.selection_orig_points = [p for p in self.selected_object.points]
+                    self.selection_orig_points_by_id = {
+                        obj.id: [p for p in obj.points]
+                        for obj in (self.selected_objects or [self.selected_object])
+                    }
                     self._push_undo()
                     clicked = True
                     break
@@ -231,14 +238,22 @@ class CanvasManager:
                     self.selection_mode = 'translate'
                     self.selection_drag_start = (x, y)
                     self.selection_orig_points = [p for p in self.selected_object.points]
+                    self.selection_orig_points_by_id = {
+                        obj.id: [p for p in obj.points]
+                        for obj in (self.selected_objects or [self.selected_object])
+                    }
                     self._push_undo()
                     clicked = True
 
             if clicked:
                 return
 
-            # Otherwise perform selection as before
+            # Otherwise perform selection as before. Jika klik di area kosong,
+            # drag kiri akan berubah menjadi marquee / box select.
             self._handle_select(x, y)
+            if self.selected_object is None:
+                self.selection_mode = 'marquee'
+                self.on_marquee_down(event)
         elif self.current_tool == "fill":
             self._handle_fill(x, y)
         elif self.current_tool == "text":
@@ -257,6 +272,10 @@ class CanvasManager:
 
     def on_mouse_drag(self, event):
         """Handler saat mouse di-drag (preview rubber-banding)."""
+        if self.current_tool == 'select' and self.selection_mode == 'marquee':
+            self.on_marquee_drag(event)
+            return
+
         # If an interactive selection transform is active, handle it
         if self.current_tool == 'select' and self.selection_mode and self.selected_object:
             x, y = event.x, event.y
@@ -271,9 +290,16 @@ class CanvasManager:
                 sx, sy = self.selection_drag_start
                 dx = x - sx
                 dy = y - sy
-                # Apply translation relative to original points
-                obj.points = translate(self.selection_orig_points, dx, dy)
-                self.render_object(obj)
+                if self.selection_orig_points_by_id and len(self.selected_objects) > 1:
+                    for selected in self.selected_objects:
+                        orig_points = self.selection_orig_points_by_id.get(selected.id)
+                        if orig_points is not None:
+                            selected.points = translate(orig_points, dx, dy)
+                    self.render_all()
+                else:
+                    # Apply translation relative to original points
+                    obj.points = translate(self.selection_orig_points, dx, dy)
+                    self.render_object(obj)
                 return
             elif self.selection_mode == 'rotate':
                 cx, cy = self.selection_center
@@ -433,12 +459,18 @@ class CanvasManager:
 
     def on_mouse_up(self, event):
         """Handler saat mouse dilepas — finalisasi objek."""
+        if self.selection_mode == 'marquee':
+            self.selection_mode = None
+            self.on_marquee_up(event)
+            return
+
         # If we were doing an interactive selection transform, finalize it
         if self.selection_mode is not None:
             # End translate/rotate mode
             self.selection_mode = None
             self.selection_drag_start = (0, 0)
             self.selection_orig_points = None
+            self.selection_orig_points_by_id = None
             self.selection_center = None
             self.selection_control_index = None
             # No further action required; render_object was called during drag
@@ -493,11 +525,11 @@ class CanvasManager:
         self._delete_marquee_rect()
         self.marquee_rect_id = self.canvas.create_rectangle(
             event.x, event.y, event.x, event.y,
-            outline="#2563EB",
+            outline="#1D4ED8",
             width=1,
             dash=(5, 3),
-            fill="#93C5FD",
-            stipple="gray25",
+            fill="#60A5FA",
+            stipple="gray12",
             tags=("marquee_select",)
         )
 
@@ -1097,7 +1129,7 @@ class CanvasManager:
                 if self._point_in_fill_object(x, y, obj):
                     merged_target = self._merge_fill_into_target(obj, x, y)
                     if merged_target is not None:
-                        self.selected_object = merged_target
+                        self._set_selected_objects([merged_target])
                         self.render_all()
                         return
                 continue
@@ -1112,32 +1144,33 @@ class CanvasManager:
             )
 
             if is_inside_filled_area or is_inside_bbox:
-                self.selected_object = obj
-                self._draw_selection_box(obj)
+                self._set_selected_objects([obj])
                 return
 
         # Tidak ada objek yang ditemukan
-        self.selected_object = None
+        self._set_selected_objects([])
 
     def _handle_area_select(self, area_bbox):
-        """Pilih object paling atas yang bersentuhan dengan kotak marquee."""
+        """Pilih semua object yang bersentuhan dengan kotak marquee."""
         self._clear_selection()
 
+        selected = []
         for obj in reversed(self.objects):
             if obj.obj_type == "fill":
                 continue
 
             if self._bboxes_intersect(area_bbox, obj.get_bbox()):
-                self.selected_object = obj
-                self._draw_selection_box(obj)
-                if self.status_callback:
-                    self.status_callback(
-                        f"Box Select | Selected: {obj.obj_type} #{obj.id} | "
-                        f"Objects: {len(self.objects)}"
-                    )
-                return
+                selected.append(obj)
 
-        self.selected_object = None
+        self._set_selected_objects(selected)
+        if selected:
+            if self.status_callback:
+                self.status_callback(
+                    f"Box Select | Selected: {len(selected)} object(s) | "
+                    f"Objects: {len(self.objects)}"
+                )
+            return
+
         if self.status_callback:
             self.status_callback(
                 f"Box Select | No object selected | Objects: {len(self.objects)}"
@@ -1180,20 +1213,57 @@ class CanvasManager:
 
         return None
 
-    def _draw_selection_box(self, obj):
-        """Menggambar bounding box seleksi di sekitar objek."""
+    def _set_selected_objects(self, objects):
+        """Set seleksi aktif, mendukung satu atau banyak object."""
+        self.selected_objects = [obj for obj in objects if obj is not None]
+        self.selected_object = self.selected_objects[0] if self.selected_objects else None
+        self._draw_selection_boxes()
+
+    def _draw_selection_boxes(self):
+        """Gambar semua box seleksi aktif."""
         self._clear_selection_box()
+        selected = self.selected_objects
+        if not selected and self.selected_object:
+            selected = [self.selected_object]
+
+        secondary = [obj for obj in selected if obj is not self.selected_object]
+        ordered = secondary + ([self.selected_object] if self.selected_object else [])
+
+        for obj in ordered:
+            self._draw_selection_box(obj, clear_existing=False)
+
+    def _draw_selection_box(self, obj, clear_existing=True):
+        """Menggambar bounding box seleksi di sekitar objek."""
+        if clear_existing:
+            self._clear_selection_box()
         bbox = obj.get_bbox()
         margin = 8
+
+        is_primary = obj is self.selected_object
+        outline_color = "#1D4ED8" if is_primary else "#60A5FA"
+        fill_color = "#DBEAFE" if is_primary else "#BFDBFE"
+
+        fill_id = self.canvas.create_rectangle(
+            bbox[0] - margin, bbox[1] - margin,
+            bbox[2] + margin, bbox[3] + margin,
+            outline="",
+            fill=fill_color,
+            stipple="gray12",
+            tags=("selection_box", "selection_fill")
+        )
+        self.selection_box_ids.append(fill_id)
 
         # Gambar kotak seleksi (dashed)
         box_id = self.canvas.create_rectangle(
             bbox[0] - margin, bbox[1] - margin,
             bbox[2] + margin, bbox[3] + margin,
-            outline="#2196F3", width=2, dash=(6, 3),
+            outline=outline_color, width=2, dash=(6, 3),
             tags=("selection_box",)
         )
         self.selection_box_ids.append(box_id)
+
+        if not is_primary:
+            return
 
         # Gambar handle di sudut-sudut
         handle_size = 5
@@ -1238,6 +1308,7 @@ class CanvasManager:
         """Hapus seleksi aktif."""
         self._clear_selection_box()
         self.selected_object = None
+        self.selected_objects = []
 
     # ============================================================
     # RENDERING OBJEK
@@ -1279,8 +1350,10 @@ class CanvasManager:
             self._render_freehand(obj, dash)
 
         # Update selection box jika objek ini yang dipilih
-        if self.selected_object and self.selected_object.id == obj.id:
-            self._draw_selection_box(obj)
+        if (not self._suppress_selection_refresh and
+            self.selected_objects and
+            any(selected.id == obj.id for selected in self.selected_objects)):
+            self._draw_selection_boxes()
 
     def _render_line(self, obj, dash):
         """
@@ -1585,18 +1658,26 @@ class CanvasManager:
         for obj in self.objects:
             obj.canvas_ids = []
 
-        # Layer fill raster harus berada di bawah outline/shape,
-        # tapi urutan antar-fill tetap dipertahankan agar fill ulang terlihat.
-        for obj in self.objects:
-            if obj.obj_type == "fill":
-                self.render_object(obj)
+        self._suppress_selection_refresh = True
+        try:
+            # Layer fill raster harus berada di bawah outline/shape,
+            # tapi urutan antar-fill tetap dipertahankan agar fill ulang terlihat.
+            for obj in self.objects:
+                if obj.obj_type == "fill":
+                    self.render_object(obj)
 
-        for obj in self.objects:
-            if obj.obj_type != "fill":
-                self.render_object(obj)
+            for obj in self.objects:
+                if obj.obj_type != "fill":
+                    self.render_object(obj)
+        finally:
+            self._suppress_selection_refresh = False
 
-        if self.selected_object:
-            self._draw_selection_box(self.selected_object)
+        self.selected_objects = [
+            obj for obj in self.selected_objects
+            if any(existing.id == obj.id for existing in self.objects)
+        ]
+        self.selected_object = self.selected_objects[0] if self.selected_objects else None
+        self._draw_selection_boxes()
 
     # ============================================================
     # TRANSFORMASI
@@ -1615,34 +1696,32 @@ class CanvasManager:
             return
 
         self._push_undo()
-        obj = self.selected_object
+        selected = self.selected_objects or [self.selected_object]
 
-        if transform_type == "translate":
-            dx = kwargs.get('dx', 0)
-            dy = kwargs.get('dy', 0)
-            obj.points = translate(obj.points, dx, dy)
+        for obj in selected:
+            if transform_type == "translate":
+                dx = kwargs.get('dx', 0)
+                dy = kwargs.get('dy', 0)
+                obj.points = translate(obj.points, dx, dy)
 
-        elif transform_type == "rotate":
-            angle = kwargs.get('angle', 15)
-            center = obj.get_center()
-            obj.points = rotate(obj.points, angle, center)
-            obj.rotation += angle
+            elif transform_type == "rotate":
+                angle = kwargs.get('angle', 15)
+                center = obj.get_center()
+                obj.points = rotate(obj.points, angle, center)
+                obj.rotation += angle
 
-        elif transform_type == "scale":
-            factor = kwargs.get('factor', 1.2)
-            center = obj.get_center()
-            obj.points = scale(obj.points, factor, center)
-            obj.scale_factor *= factor
-        
-        elif transform_type == "reflect":
-            axis = kwargs.get('axis', 'x')
-            center = obj.get_center()
-            obj.points = reflect(obj.points, axis, center)
+            elif transform_type == "scale":
+                factor = kwargs.get('factor', 1.2)
+                center = obj.get_center()
+                obj.points = scale(obj.points, factor, center)
+                obj.scale_factor *= factor
 
-        if obj.obj_type == "fill":
-            self.render_all()
-        else:
-            self.render_object(obj)
+            elif transform_type == "reflect":
+                axis = kwargs.get('axis', 'x')
+                center = obj.get_center()
+                obj.points = reflect(obj.points, axis, center)
+
+        self.render_all()
 
     # ============================================================
     # UNDO

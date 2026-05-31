@@ -18,13 +18,14 @@ class AnimationController:
     Interval default 30ms (~33 FPS).
     """
 
-    def __init__(self):
+    def __init__(self, on_stop=None):
         self.is_running = False
         self.after_id = None
         self.anim_type = "bounce"  # "bounce", "pulse", "spin"
         self.target_obj = None
         self.canvas_manager = None
         self.root = None
+        self.on_stop = on_stop
 
         # Parameter animasi bounce
         self.bounce_dx = 3        # Kecepatan gerak horizontal
@@ -72,6 +73,7 @@ class AnimationController:
 
     def stop(self):
         """Menghentikan animasi yang sedang berjalan."""
+        was_active = self.is_running or self.target_obj is not None
         self.is_running = False
         if self.after_id and self.root:
             try:
@@ -80,6 +82,8 @@ class AnimationController:
                 pass
         self.after_id = None
         self.target_obj = None
+        if was_active and self.on_stop:
+            self.on_stop()
 
     def _animate_step(self):
         """Satu langkah animasi. Dipanggil berulang via after()."""
@@ -90,6 +94,9 @@ class AnimationController:
             return
 
         obj = self.target_obj
+        if obj not in self.canvas_manager.objects:
+            self.stop()
+            return
 
         if self.anim_type == "bounce":
             self._step_bounce(obj)
