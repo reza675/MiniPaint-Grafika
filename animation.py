@@ -26,6 +26,8 @@ class AnimationController:
         self.canvas_manager = None
         self.root = None
         self.on_stop = on_stop
+        self.pulse_base_points = None
+        self.pulse_base_scale_factor = 1.0
 
         # Parameter animasi bounce
         self.bounce_dx = 3        # Kecepatan gerak horizontal
@@ -37,8 +39,7 @@ class AnimationController:
         self.pulse_phase = 0       # 0 = membesar, 1 = mengecil
         self.pulse_count = 0
         self.pulse_max = 30
-        self.pulse_scale_up = 1.02
-        self.pulse_scale_down = 0.98
+        self.pulse_amplitude = 0.25
 
         # Parameter animasi spin
         self.spin_angle = 3  # Derajat per frame
@@ -67,6 +68,8 @@ class AnimationController:
         self.bounce_direction = 1
         self.pulse_phase = 0
         self.pulse_count = 0
+        self.pulse_base_points = [p for p in obj.points] if anim_type == "pulse" else None
+        self.pulse_base_scale_factor = getattr(obj, "scale_factor", 1.0)
 
         # Mulai loop animasi
         self._animate_step()
@@ -74,6 +77,15 @@ class AnimationController:
     def stop(self):
         """Menghentikan animasi yang sedang berjalan."""
         was_active = self.is_running or self.target_obj is not None
+        target_obj = self.target_obj
+        canvas_manager = self.canvas_manager
+        should_restore_pulse = (
+            self.anim_type == "pulse" and
+            target_obj is not None and
+            canvas_manager is not None and
+            self.pulse_base_points is not None and
+            target_obj in canvas_manager.objects
+        )
         self.is_running = False
         if self.after_id and self.root:
             try:
@@ -81,6 +93,12 @@ class AnimationController:
             except Exception:
                 pass
         self.after_id = None
+        if should_restore_pulse:
+            target_obj.points = [p for p in self.pulse_base_points]
+            target_obj.scale_factor = self.pulse_base_scale_factor
+            canvas_manager.render_object(target_obj)
+        self.pulse_base_points = None
+        self.pulse_base_scale_factor = 1.0
         self.target_obj = None
         if was_active and self.on_stop:
             self.on_stop()
@@ -128,16 +146,23 @@ class AnimationController:
     def _step_pulse(self, obj):
         """
         Animasi pulse: objek membesar-mengecil.
-        Menerapkan scaling berulang.
+        Menghitung skala dari bentuk awal animasi, bukan kumulatif.
         """
-        if self.pulse_phase == 0:
-            factor = self.pulse_scale_up
-        else:
-            factor = self.pulse_scale_down
+        if self.pulse_base_points is None:
+            self.pulse_base_points = [p for p in obj.points]
 
-        center = obj.get_center()
-        obj.points = scale(obj.points, factor, center)
-        
+        if self.pulse_phase == 0:
+            progress = self.pulse_count / self.pulse_max
+        else:
+            progress = 1 - (self.pulse_count / self.pulse_max)
+
+        factor = 1.0 + (self.pulse_amplitude * progress)
+        xs = [p[0] for p in self.pulse_base_points]
+        ys = [p[1] for p in self.pulse_base_points]
+        center = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+        obj.points = scale(self.pulse_base_points, factor, center)
+        obj.scale_factor = self.pulse_base_scale_factor * factor
+
         self.pulse_count += 1
         if self.pulse_count >= self.pulse_max:
             self.pulse_count = 0
