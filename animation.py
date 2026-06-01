@@ -23,11 +23,12 @@ class AnimationController:
         self.after_id = None
         self.anim_type = "bounce"  # "bounce", "pulse", "spin"
         self.target_obj = None
+        self.target_objects = []
         self.canvas_manager = None
         self.root = None
         self.on_stop = on_stop
-        self.pulse_base_points = None
-        self.pulse_base_scale_factor = 1.0
+        self.pulse_base_points = {}
+        self.pulse_base_scale_factors = {}
 
         # Parameter animasi bounce
         self.bounce_dx = 3        # Kecepatan gerak horizontal
@@ -46,10 +47,10 @@ class AnimationController:
 
     def start(self, obj, canvas_manager, root, anim_type="bounce"):
         """
-        Memulai animasi pada objek tertentu.
+        Memulai animasi pada satu atau beberapa objek.
         
         Args:
-            obj: DrawingObject yang akan dianimasikan
+            obj: DrawingObject atau list DrawingObject yang akan dianimasikan
             canvas_manager: referensi ke CanvasManager untuk re-render
             root: Tk root window untuk after()
             anim_type: "bounce", "pulse", atau "spin"
@@ -57,7 +58,12 @@ class AnimationController:
         # Hentikan animasi sebelumnya jika ada
         self.stop()
 
-        self.target_obj = obj
+        targets = obj if isinstance(obj, list) else [obj]
+        self.target_objects = [target for target in targets if target is not None]
+        if not self.target_objects:
+            return
+
+        self.target_obj = self.target_objects[0]
         self.canvas_manager = canvas_manager
         self.root = root
         self.anim_type = anim_type
@@ -68,24 +74,26 @@ class AnimationController:
         self.bounce_direction = 1
         self.pulse_phase = 0
         self.pulse_count = 0
-        self.pulse_base_points = [p for p in obj.points] if anim_type == "pulse" else None
-        self.pulse_base_scale_factor = getattr(obj, "scale_factor", 1.0)
+        self.pulse_base_points = {}
+        self.pulse_base_scale_factors = {}
+        if anim_type == "pulse":
+            self.pulse_base_points = {
+                target.id: [p for p in target.points]
+                for target in self.target_objects
+            }
+            self.pulse_base_scale_factors = {
+                target.id: getattr(target, "scale_factor", 1.0)
+                for target in self.target_objects
+            }
 
         # Mulai loop animasi
         self._animate_step()
 
     def stop(self):
         """Menghentikan animasi yang sedang berjalan."""
-        was_active = self.is_running or self.target_obj is not None
-        target_obj = self.target_obj
+        was_active = self.is_running or bool(self.target_objects)
+        target_objects = list(self.target_objects)
         canvas_manager = self.canvas_manager
-        should_restore_pulse = (
-            self.anim_type == "pulse" and
-            target_obj is not None and
-            canvas_manager is not None and
-            self.pulse_base_points is not None and
-            target_obj in canvas_manager.objects
-        )
         self.is_running = False
         if self.after_id and self.root:
             try:
@@ -93,38 +101,58 @@ class AnimationController:
             except Exception:
                 pass
         self.after_id = None
-        if should_restore_pulse:
-            target_obj.points = [p for p in self.pulse_base_points]
-            target_obj.scale_factor = self.pulse_base_scale_factor
-            canvas_manager.render_object(target_obj)
-        self.pulse_base_points = None
-        self.pulse_base_scale_factor = 1.0
+
+        if self.anim_type == "pulse" and canvas_manager is not None:
+            for target in target_objects:
+                base_points = self.pulse_base_points.get(target.id)
+                if base_points is None or target not in canvas_manager.objects:
+                    continue
+                target.points = [p for p in base_points]
+                target.scale_factor = self.pulse_base_scale_factors.get(target.id, 1.0)
+                canvas_manager.render_object(target)
+
+        self.pulse_base_points = {}
+        self.pulse_base_scale_factors = {}
         self.target_obj = None
+        self.target_objects = []
         if was_active and self.on_stop:
             self.on_stop()
 
     def _animate_step(self):
         """Satu langkah animasi. Dipanggil berulang via after()."""
-        if not self.is_running or self.target_obj is None:
+        if not self.is_running or not self.target_objects:
             return
         
         if self.canvas_manager is None:
             return
 
-        obj = self.target_obj
-        if obj not in self.canvas_manager.objects:
+        if any(obj not in self.canvas_manager.objects for obj in self.target_objects):
             self.stop()
             return
 
-        if self.anim_type == "bounce":
-            self._step_bounce(obj)
-        elif self.anim_type == "pulse":
-            self._step_pulse(obj)
-        elif self.anim_type == "spin":
-            self._step_spin(obj)
+        for obj in self.target_objects:
+            if self.anim_type == "bounce":
+                self._step_bounce(obj)
+            elif self.anim_type == "pulse":
+                self._step_pulse(obj)
+            elif self.anim_type == "spin":
+                self._step_spin(obj)
 
-        # Re-render objek yang berubah
-        self.canvas_manager.render_object(obj)
+            # Re-render objek yang berubah
+            self.canvas_manager.render_object(obj)
+
+        if self.anim_type == "bounce":
+            self.bounce_count += 1
+            if self.bounce_count >= self.bounce_max:
+                self.bounce_count = 0
+                self.bounce_direction *= -1
+        elif self.anim_type == "pulse":
+            self.pulse_count += 1
+            if self.pulse_count >= self.pulse_max:
+                self.pulse_count = 0
+                self.pulse_phase = 1 - self.pulse_phase
+
+        self.target_obj = self.target_objects[0] if self.target_objects else None
 
         # Jadwalkan langkah berikutnya
         if self.is_running:
@@ -137,19 +165,15 @@ class AnimationController:
         """
         dx = self.bounce_dx * self.bounce_direction
         obj.points = translate(obj.points, dx, 0)
-        
-        self.bounce_count += 1
-        if self.bounce_count >= self.bounce_max:
-            self.bounce_count = 0
-            self.bounce_direction *= -1  # Balik arah
 
     def _step_pulse(self, obj):
         """
         Animasi pulse: objek membesar-mengecil.
         Menghitung skala dari bentuk awal animasi, bukan kumulatif.
         """
-        if self.pulse_base_points is None:
-            self.pulse_base_points = [p for p in obj.points]
+        if obj.id not in self.pulse_base_points:
+            self.pulse_base_points[obj.id] = [p for p in obj.points]
+            self.pulse_base_scale_factors[obj.id] = getattr(obj, "scale_factor", 1.0)
 
         if self.pulse_phase == 0:
             progress = self.pulse_count / self.pulse_max
@@ -157,16 +181,12 @@ class AnimationController:
             progress = 1 - (self.pulse_count / self.pulse_max)
 
         factor = 1.0 + (self.pulse_amplitude * progress)
-        xs = [p[0] for p in self.pulse_base_points]
-        ys = [p[1] for p in self.pulse_base_points]
+        base_points = self.pulse_base_points[obj.id]
+        xs = [p[0] for p in base_points]
+        ys = [p[1] for p in base_points]
         center = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
-        obj.points = scale(self.pulse_base_points, factor, center)
-        obj.scale_factor = self.pulse_base_scale_factor * factor
-
-        self.pulse_count += 1
-        if self.pulse_count >= self.pulse_max:
-            self.pulse_count = 0
-            self.pulse_phase = 1 - self.pulse_phase  # Toggle fase
+        obj.points = scale(base_points, factor, center)
+        obj.scale_factor = self.pulse_base_scale_factors.get(obj.id, 1.0) * factor
 
     def _step_spin(self, obj):
         """

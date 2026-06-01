@@ -87,7 +87,7 @@ class MiniPaintApp:
         self._build_ui()
 
         # Bind keyboard shortcuts
-        self.root.bind("<Control-z>", lambda e: self.canvas_mgr.undo())
+        self.root.bind("<Control-z>", lambda e: self._on_undo())
         self.root.bind("<Control-s>", lambda e: self.canvas_mgr.save_canvas())
         self.root.bind("<Delete>", lambda e: self._delete_selected())
         self.root.bind("<Escape>", lambda e: self._on_tool_select("select"))
@@ -793,8 +793,9 @@ class MiniPaintApp:
             return
 
         anim_type = self.anim_type_var.get()
+        selected = self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]
         self.animation_controller.start(
-            self.canvas_mgr.selected_object,
+            selected,
             self.canvas_mgr,
             self.root,
             anim_type
@@ -829,8 +830,10 @@ class MiniPaintApp:
         self.canvas_mgr._push_undo()
         selected = self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]
         selected_ids = {obj.id for obj in selected}
-        if (self.animation_controller.target_obj and
-            self.animation_controller.target_obj.id in selected_ids):
+        animated_ids = {
+            obj.id for obj in getattr(self.animation_controller, "target_objects", [])
+        }
+        if selected_ids & animated_ids:
             self.animation_controller.stop()
 
         # Hapus dari canvas

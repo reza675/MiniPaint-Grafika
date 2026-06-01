@@ -152,6 +152,10 @@ class CanvasManager:
                 except Exception:
                     pass
             else:
+                try:
+                    self.canvas.config(cursor='arrow')
+                except Exception:
+                    pass
                 # default status update
                 if self.status_callback:
                     self.status_callback(
@@ -979,9 +983,20 @@ class CanvasManager:
                 if otype == 'line':
                     p0, p1 = obj.points[0], obj.points[1]
                     draw.line([p0, p1], fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype == 'circle':
+                    cx, cy = obj.points[0]
+                    rx, ry = obj.points[1]
+                    r = math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
+                    box = [cx - r, cy - r, cx + r, cy + r]
+                    if obj.fill_color:
+                        draw.ellipse(box, fill=obj.fill_color, outline=obj.outline_color, width=max(1, int(obj.line_width)))
+                    else:
+                        draw.ellipse(box, outline=obj.outline_color, width=max(1, int(obj.line_width)))
                 elif otype in ('rectangle', 'ellipse'):
                     (x1, y1), (x2, y2) = obj.points[0], obj.points[1]
-                    box = [x1, y1, x2, y2]
+                    left, right = sorted((x1, x2))
+                    top, bottom = sorted((y1, y2))
+                    box = [left, top, right, bottom]
                     if otype == 'rectangle':
                         if obj.fill_color:
                             draw.rectangle(box, fill=obj.fill_color, outline=obj.outline_color, width=max(1, int(obj.line_width)))
@@ -992,12 +1007,21 @@ class CanvasManager:
                             draw.ellipse(box, fill=obj.fill_color, outline=obj.outline_color, width=max(1, int(obj.line_width)))
                         else:
                             draw.ellipse(box, outline=obj.outline_color, width=max(1, int(obj.line_width)))
-                elif otype in ('triangle', 'trapezium', 'bezier'):
+                elif otype in ('triangle', 'trapezium'):
                     pts = [tuple(p) for p in obj.points]
                     if obj.fill_color:
                         draw.polygon(pts, fill=obj.fill_color, outline=obj.outline_color)
                     else:
                         draw.line(pts + [pts[0]], fill=obj.outline_color, width=max(1, int(obj.line_width)))
+                elif otype == 'bezier':
+                    if len(obj.points) >= 2:
+                        algo = (obj.algorithm or self.current_curve_algorithm or "Bezier").lower()
+                        if "spline" in algo:
+                            pts = bspline_curve(obj.points, num_segments=200)
+                        else:
+                            pts = bezier_curve(obj.points, num_segments=200)
+                        if len(pts) >= 2:
+                            draw.line(pts, fill=obj.outline_color, width=max(1, int(obj.line_width)))
                 elif otype == 'freehand':
                     pts = [tuple(p) for p in obj.points]
                     if len(pts) >= 2:
@@ -1574,11 +1598,15 @@ class CanvasManager:
             return
 
         x1, y1 = obj.points[0]
+        draw_x, draw_y = x1, y1
         # Determine target size from second point if present
         if len(obj.points) > 1:
             x2, y2 = obj.points[1]
-            w = max(1, int(round(x2 - x1)))
-            h = max(1, int(round(y2 - y1)))
+            left, right = sorted((x1, x2))
+            top, bottom = sorted((y1, y2))
+            draw_x, draw_y = left, top
+            w = max(1, int(round(right - left)))
+            h = max(1, int(round(bottom - top)))
         else:
             if getattr(obj, 'image_ref', None):
                 try:
@@ -1609,7 +1637,7 @@ class CanvasManager:
                 pass
 
         # Draw the image at top-left
-        cid = self.canvas.create_image(x1, y1, anchor=tk.NW, image=getattr(obj, 'image_ref', None))
+        cid = self.canvas.create_image(draw_x, draw_y, anchor=tk.NW, image=getattr(obj, 'image_ref', None))
         obj.canvas_ids.append(cid)
 
     def _render_fill(self, obj):

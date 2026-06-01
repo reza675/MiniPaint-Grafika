@@ -5,6 +5,7 @@ Setiap objek yang digambar pada canvas disimpan sebagai DrawingObject.
 """
 
 import copy
+import math
 
 # Counter global untuk ID unik objek
 _next_id = 1
@@ -71,6 +72,8 @@ class DrawingObject:
         """Menghitung titik pusat dari bounding box objek."""
         if not self.points:
             return (0, 0)
+        if self.obj_type == "circle" and len(self.points) >= 2:
+            return self.points[0]
         xs = [p[0] for p in self.points]
         ys = [p[1] for p in self.points]
         cx = (min(xs) + max(xs)) / 2
@@ -81,6 +84,11 @@ class DrawingObject:
         """Menghitung bounding box (x_min, y_min, x_max, y_max)."""
         if not self.points:
             return (0, 0, 0, 0)
+        if self.obj_type == "circle" and len(self.points) >= 2:
+            cx, cy = self.points[0]
+            rx, ry = self.points[1]
+            r = math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
+            return (cx - r, cy - r, cx + r, cy + r)
         xs = [p[0] for p in self.points]
         ys = [p[1] for p in self.points]
         return (min(xs), min(ys), max(xs), max(ys))
