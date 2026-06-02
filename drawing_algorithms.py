@@ -33,18 +33,14 @@ def dda_line(x1, y1, x2, y2):
     dx = x2 - x1
     dy = y2 - y1
     
-    # Tentukan jumlah langkah berdasarkan jarak terbesar
     steps = max(abs(dx), abs(dy))
     
     if steps == 0:
-        # Titik tunggal
         return [(round(x1), round(y1))]
     
-    # Hitung increment per langkah
     x_inc = dx / steps
     y_inc = dy / steps
     
-    # Iterasi dan kumpulkan titik-titik pixel
     x = float(x1)
     y = float(y1)
     
@@ -83,17 +79,14 @@ def bresenham_line(x1, y1, x2, y2):
     dx = abs(x2 - x1)
     dy = abs(y2 - y1)
     
-    # Tentukan arah step
     sx = 1 if x1 < x2 else -1
     sy = 1 if y1 < y2 else -1
     
-    # Inisialisasi error
     err = dx - dy
     
     while True:
         points.append((x1, y1))
         
-        # Cek apakah sudah sampai titik akhir
         if x1 == x2 and y1 == y2:
             break
         
@@ -143,8 +136,6 @@ def bezier_curve(control_points, num_segments=200):
     for i in range(num_segments + 1):
         t = i / num_segments
         
-        # Algoritma De Casteljau
-        # Reduksi titik kontrol secara rekursif
         temp_points = list(control_points)
         
         for level in range(n):
@@ -205,7 +196,6 @@ def bspline_curve(control_points, num_segments=200):
 
     curve_points = []
 
-    # Jika hanya 4 titik, satu segmen saja
     segments = len(control_points) - 3
     for s in range(segments):
         p0, p1, p2, p3 = control_points[s:s + 4]
@@ -252,19 +242,15 @@ def flood_fill(photo_image, start_x, start_y, fill_color_rgb, tolerance=30):
     width = photo_image.width()
     height = photo_image.height()
     
-    # Validasi posisi
     if start_x < 0 or start_x >= width or start_y < 0 or start_y >= height:
         return photo_image
     
-    # Ambil warna target (warna di posisi klik)
     target_color = photo_image.get(start_x, start_y)
     
-    # Jika warna target sama dengan warna fill, tidak perlu apa-apa
     fill_r, fill_g, fill_b = fill_color_rgb
     if isinstance(target_color, tuple):
         tr, tg, tb = target_color
     else:
-        # PhotoImage.get() mengembalikan string "r g b"
         parts = str(target_color).split()
         tr, tg, tb = int(parts[0]), int(parts[1]), int(parts[2])
     
@@ -283,10 +269,8 @@ def flood_fill(photo_image, start_x, start_y, fill_color_rgb, tolerance=30):
                 abs(pg - tg) <= tolerance and
                 abs(pb - tb) <= tolerance)
     
-    # Format warna fill untuk PhotoImage.put()
     fill_hex = f"#{fill_r:02x}{fill_g:02x}{fill_b:02x}"
     
-    # Stack-based flood fill
     visited = set()
     stack = [(start_x, start_y)]
     pixels_to_fill = []
@@ -307,14 +291,11 @@ def flood_fill(photo_image, start_x, start_y, fill_color_rgb, tolerance=30):
         
         pixels_to_fill.append((x, y))
         
-        # Push 4 tetangga
         stack.append((x + 1, y))
         stack.append((x - 1, y))
         stack.append((x, y + 1))
         stack.append((x, y - 1))
     
-    # Terapkan perubahan warna secara batch (lebih efisien)
-    # Kelompokkan pixel per baris untuk optimasi
     rows = {}
     for (x, y) in pixels_to_fill:
         if y not in rows:

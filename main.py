@@ -26,11 +26,10 @@ import os
 
 try:
     import ctypes
-    # Meminta Windows agar aplikasi tidak di-scale secara otomatis (membuatnya tajam)
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
-# Tambahkan direktori saat ini ke path
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from canvas_manager import CanvasManager
@@ -49,7 +48,6 @@ class MiniPaintApp:
         self.root.geometry("1200x780")
         self.root.minsize(900, 600)
 
-        # Warna tema
         self.BG_DARK = "#1E1E2E"
         self.BG_MEDIUM = "#2D2D44"
         self.BG_LIGHT = "#3A3A55"
@@ -64,29 +62,23 @@ class MiniPaintApp:
         self.WARNING = "#F59E0B"
         self.DANGER = "#EF4444"
 
-        # Konfigurasi style ttk
         self.style = ttk.Style()
         self.style.theme_use('clam')
         self._configure_styles()
 
-        # Inisialisasi variabel
         self.active_tool = tk.StringVar(value="line")
         self.line_width_var = tk.IntVar(value=2)
         self.line_style_var = tk.StringVar(value="solid")
         self.anim_type_var = tk.StringVar(value="bounce")
 
-        # Controller animasi
         self.animation_controller = AnimationController(
             on_stop=self._on_animation_stopped
         )
 
-        # Canvas manager akan diinisialisasi di _build_canvas
         self.canvas_mgr = None
 
-        # Bangun UI
         self._build_ui()
 
-        # Bind keyboard shortcuts
         self.root.bind("<Control-z>", lambda e: self._on_undo())
         self.root.bind("<Control-s>", lambda e: self.canvas_mgr.save_canvas())
         self.root.bind("<Delete>", lambda e: self._delete_selected())
@@ -171,30 +163,22 @@ class MiniPaintApp:
         """Membangun seluruh antarmuka pengguna."""
         self.root.configure(bg=self.BG_DARK)
 
-        # Container utama
         main_container = tk.Frame(self.root, bg=self.BG_DARK)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # === TOOLBAR ATAS ===
         self._build_toolbar(main_container)
 
-        # === BODY: panel kiri + canvas + panel kanan ===
         body = tk.Frame(main_container, bg=self.BG_DARK)
         body.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
 
-        # Panel kiri (tools)
         self._build_tool_panel(body)
 
-        # Canvas tengah
         self._build_canvas(body)
 
-        # Panel kanan (properties)
         self._build_property_panel(body)
 
-        # === STATUS BAR ===
         self._build_status_bar(main_container)
 
-        # Aktifkan tool default (setelah semua UI siap)
         self._on_tool_select("line")
 
     # ============================================================
@@ -210,17 +194,14 @@ class MiniPaintApp:
         inner = tk.Frame(toolbar, bg=self.BG_MEDIUM)
         inner.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-        # Logo / Judul
         title = tk.Label(inner, text="🎨 Mini Paint",
             bg=self.BG_MEDIUM, fg=self.ACCENT_LIGHT,
             font=("Segoe UI", 17, "bold"))
         title.pack(side=tk.LEFT, padx=(0, 20))
 
-        # Separator
         sep = tk.Frame(inner, width=1, bg=self.BORDER_COLOR)
         sep.pack(side=tk.LEFT, fill=tk.Y, padx=8)
 
-        # Tombol toolbar
         toolbar_buttons = [
             ("📄 New", self._on_clear_canvas),
             ("💾 Save", self._on_save),
@@ -241,11 +222,9 @@ class MiniPaintApp:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg=self.BG_HOVER))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg=self.BG_LIGHT))
 
-        # Separator
         sep2 = tk.Frame(inner, width=1, bg=self.BORDER_COLOR)
         sep2.pack(side=tk.LEFT, fill=tk.Y, padx=8)
 
-        # Animasi controls
         anim_label = tk.Label(inner, text="Animation:",
             bg=self.BG_MEDIUM, fg=self.TEXT_SECONDARY,
             font=("Segoe UI", 13))
@@ -284,17 +263,14 @@ class MiniPaintApp:
         panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         panel.pack_propagate(False)
 
-        # Header
         header = tk.Label(panel, text="🔧 TOOLS",
             bg=self.BG_DARK, fg=self.ACCENT_LIGHT,
             font=("Segoe UI", 14, "bold"))
         header.pack(pady=(8, 8), padx=8, anchor=tk.W)
 
-        # Separator
         sep = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep.pack(fill=tk.X, padx=8, pady=(0, 8))
 
-        # List tool dasar yang disederhanakan
         tools = [
             ("select",    "⬚   Select"),
             ("pencil",    "✎   Pencil"),
@@ -317,17 +293,14 @@ class MiniPaintApp:
             btn.pack(fill=tk.X, padx=8, pady=3)
             self.tool_buttons[tool_id] = btn
 
-            # Hover effect
             btn.bind("<Enter>", lambda e, b=btn, t=tool_id:
                 b.config(bg=self.BG_HOVER) if self.active_tool.get() != t else None)
             btn.bind("<Leave>", lambda e, b=btn, t=tool_id:
                 b.config(bg=self.ACCENT if self.active_tool.get() == t else self.BG_LIGHT))
 
-        # Separator
         sep2 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep2.pack(fill=tk.X, padx=8, pady=12)
 
-        # Dropdown Shapes
         tk.Label(panel, text="Shapes:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 12)).pack(padx=8, anchor=tk.W)
         self.shape_var = tk.StringVar(value="Line")
         self.shape_combo = ttk.Combobox(panel, textvariable=self.shape_var,
@@ -336,11 +309,9 @@ class MiniPaintApp:
         self.shape_combo.pack(padx=8, pady=(2, 10))
         self.shape_combo.bind("<<ComboboxSelected>>", self._on_shape_change)
 
-        # Separator
         sep3 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep3.pack(fill=tk.X, padx=8, pady=8)
 
-        # Dropdown Line/Curve Algorithm
         tk.Label(panel, text="Line/Curve Algo:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 12)).pack(padx=8, anchor=tk.W)
 
         self.line_algo_var = tk.StringVar(value="Bresenham Line")
@@ -351,7 +322,6 @@ class MiniPaintApp:
         
         self.algo_combo.bind("<<ComboboxSelected>>", self._on_algo_change)
 
-        # Dropdown Fill Algorithm
         tk.Label(panel, text="Fill Algo:", bg=self.BG_DARK, fg=self.TEXT_SECONDARY, font=("Segoe UI", 12)).pack(padx=8, anchor=tk.W)
         
         self.fill_algo_var = tk.StringVar(value="Flood Fill")
@@ -361,7 +331,6 @@ class MiniPaintApp:
         self.fill_combo.pack(padx=8, pady=(2, 10))
         self.fill_combo.bind("<<ComboboxSelected>>", self._on_fill_algo_change)
         
-        # Info algoritma
         self.algo_label = tk.Label(panel,
             text="Algorithm:\nBresenham Line",
             bg=self.BG_DARK, fg=self.TEXT_SECONDARY,
@@ -379,7 +348,6 @@ class MiniPaintApp:
             highlightthickness=0)
         canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Canvas dengan border
         inner_frame = tk.Frame(canvas_frame, bg=self.BORDER_COLOR, bd=2)
         inner_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
@@ -389,7 +357,6 @@ class MiniPaintApp:
             cursor="crosshair")
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # Inisialisasi canvas manager
         self.canvas_mgr = CanvasManager(
             self.canvas, self.root,
             status_callback=self._update_status
@@ -405,7 +372,6 @@ class MiniPaintApp:
         panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         panel.pack_propagate(False)
 
-        # Header
         header = tk.Label(panel, text="⚙ PROPERTIES",
             bg=self.BG_DARK, fg=self.ACCENT_LIGHT,
             font=("Segoe UI", 14, "bold"))
@@ -414,7 +380,6 @@ class MiniPaintApp:
         sep = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep.pack(fill=tk.X, padx=8, pady=(0, 8))
 
-        # === Warna Aktif ===
         color_frame = tk.Frame(panel, bg=self.BG_DARK)
         color_frame.pack(fill=tk.X, padx=8, pady=4)
 
@@ -428,7 +393,6 @@ class MiniPaintApp:
             command=self._on_choose_color)
         self.color_indicator.pack(fill=tk.X, pady=(2, 0))
 
-        # === Fill Color ===
         fill_frame = tk.Frame(panel, bg=self.BG_DARK)
         fill_frame.pack(fill=tk.X, padx=8, pady=4)
 
@@ -457,7 +421,6 @@ class MiniPaintApp:
         sep2 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep2.pack(fill=tk.X, padx=8, pady=8)
 
-        # === Ketebalan Garis ===
         width_frame = tk.Frame(panel, bg=self.BG_DARK)
         width_frame.pack(fill=tk.X, padx=8, pady=4)
 
@@ -478,7 +441,6 @@ class MiniPaintApp:
             command=self._on_width_change)
         width_slider.pack(fill=tk.X, pady=(2, 0))
 
-        # === Style Garis ===
         style_frame = tk.Frame(panel, bg=self.BG_DARK)
         style_frame.pack(fill=tk.X, padx=8, pady=4)
 
@@ -497,16 +459,13 @@ class MiniPaintApp:
         sep3 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep3.pack(fill=tk.X, padx=8, pady=8)
 
-        # === TRANSFORMASI ===
         tk.Label(panel, text="🔄 TRANSFORM",
             bg=self.BG_DARK, fg=self.ACCENT_LIGHT,
             font=("Segoe UI", 13, "bold")).pack(padx=8, anchor=tk.W)
 
-        # Tombol arah (Move)
         move_frame = tk.Frame(panel, bg=self.BG_DARK)
         move_frame.pack(padx=8, pady=6)
 
-        # Baris atas: tombol Up
         btn_up = tk.Button(move_frame, text="▲",
             bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
             font=("Segoe UI", 14), relief=tk.FLAT,
@@ -515,7 +474,6 @@ class MiniPaintApp:
             command=lambda: self._on_transform("translate", dy=-20))
         btn_up.grid(row=0, column=1, padx=2, pady=2)
 
-        # Baris tengah: Left, label, Right
         btn_left = tk.Button(move_frame, text="◄",
             bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
             font=("Segoe UI", 14), relief=tk.FLAT,
@@ -537,7 +495,6 @@ class MiniPaintApp:
             command=lambda: self._on_transform("translate", dx=20))
         btn_right.grid(row=1, column=2, padx=2, pady=2)
 
-        # Baris bawah: Down
         btn_down = tk.Button(move_frame, text="▼",
             bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
             font=("Segoe UI", 14), relief=tk.FLAT,
@@ -546,12 +503,10 @@ class MiniPaintApp:
             command=lambda: self._on_transform("translate", dy=20))
         btn_down.grid(row=2, column=1, padx=2, pady=2)
 
-        # Hover effects untuk tombol arah
         for btn in [btn_up, btn_down, btn_left, btn_right]:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg=self.BG_HOVER))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg=self.BG_LIGHT))
 
-        # Tombol Rotate & Scale
         rs_frame = tk.Frame(panel, bg=self.BG_DARK)
         rs_frame.pack(fill=tk.X, padx=8, pady=4)
         
@@ -610,7 +565,6 @@ class MiniPaintApp:
         sep4 = tk.Frame(panel, height=1, bg=self.BORDER_COLOR)
         sep4.pack(fill=tk.X, padx=8, pady=8)
 
-        # === DELETE OBJECT ===
         btn_delete = tk.Button(panel, text="🗑 Delete Object",
             bg=self.DANGER, fg="#FFFFFF",
             font=("Segoe UI", 12, "bold"), relief=tk.FLAT,
@@ -642,7 +596,6 @@ class MiniPaintApp:
         if self.canvas_mgr:
             self.canvas_mgr.set_tool(tool)
 
-        # Update visual tombol
         for t_id, btn in self.tool_buttons.items():
             if t_id == tool:
                 btn.config(bg=self.ACCENT, fg="#FFFFFF",
@@ -651,7 +604,6 @@ class MiniPaintApp:
                 btn.config(bg=self.BG_LIGHT, fg=self.TEXT_PRIMARY,
                     font=("Segoe UI", 13))
 
-        # Update label algoritma
         curve_algo = getattr(self.canvas_mgr, "current_curve_algorithm", "Bezier")
         line_algo = getattr(self.canvas_mgr, "current_line_algorithm", "Bresenham")
         fill_algo = getattr(self.canvas_mgr, "current_fill_algorithm", "Flood Fill")
@@ -836,12 +788,10 @@ class MiniPaintApp:
         if selected_ids & animated_ids:
             self.animation_controller.stop()
 
-        # Hapus dari canvas
         for obj in selected:
             for cid in obj.canvas_ids:
                 self.canvas.delete(cid)
 
-        # Hapus dari daftar objek
         self.canvas_mgr.objects = [
             o for o in self.canvas_mgr.objects if o.id not in selected_ids
         ]
@@ -860,7 +810,6 @@ def main():
     """Menjalankan aplikasi Mini Paint."""
     root = tk.Tk()
 
-    # Konfigurasi agar tampilan lebih baik di macOS
     try:
         root.tk.call('tk', 'scaling', 1.0)
     except Exception:

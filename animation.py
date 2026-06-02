@@ -21,7 +21,7 @@ class AnimationController:
     def __init__(self, on_stop=None):
         self.is_running = False
         self.after_id = None
-        self.anim_type = "bounce"  # "bounce", "pulse", "spin"
+        self.anim_type = "bounce"
         self.target_obj = None
         self.target_objects = []
         self.canvas_manager = None
@@ -30,20 +30,17 @@ class AnimationController:
         self.pulse_base_points = {}
         self.pulse_base_scale_factors = {}
 
-        # Parameter animasi bounce
-        self.bounce_dx = 3        # Kecepatan gerak horizontal
-        self.bounce_direction = 1  # 1 = kanan, -1 = kiri
+        self.bounce_dx = 3
+        self.bounce_direction = 1
         self.bounce_count = 0
-        self.bounce_max = 60       # Jumlah langkah sebelum balik arah
+        self.bounce_max = 60
 
-        # Parameter animasi pulse
-        self.pulse_phase = 0       # 0 = membesar, 1 = mengecil
+        self.pulse_phase = 0
         self.pulse_count = 0
         self.pulse_max = 30
         self.pulse_amplitude = 0.25
 
-        # Parameter animasi spin
-        self.spin_angle = 3  # Derajat per frame
+        self.spin_angle = 3
 
     def start(self, obj, canvas_manager, root, anim_type="bounce"):
         """
@@ -55,7 +52,6 @@ class AnimationController:
             root: Tk root window untuk after()
             anim_type: "bounce", "pulse", atau "spin"
         """
-        # Hentikan animasi sebelumnya jika ada
         self.stop()
 
         targets = obj if isinstance(obj, list) else [obj]
@@ -69,7 +65,6 @@ class AnimationController:
         self.anim_type = anim_type
         self.is_running = True
 
-        # Reset parameter
         self.bounce_count = 0
         self.bounce_direction = 1
         self.pulse_phase = 0
@@ -86,7 +81,6 @@ class AnimationController:
                 for target in self.target_objects
             }
 
-        # Mulai loop animasi
         self._animate_step()
 
     def stop(self):
@@ -138,7 +132,6 @@ class AnimationController:
             elif self.anim_type == "spin":
                 self._step_spin(obj)
 
-            # Re-render objek yang berubah
             self.canvas_manager.render_object(obj)
 
         if self.anim_type == "bounce":
@@ -154,7 +147,6 @@ class AnimationController:
 
         self.target_obj = self.target_objects[0] if self.target_objects else None
 
-        # Jadwalkan langkah berikutnya
         if self.is_running:
             self.after_id = self.root.after(30, self._animate_step)
 

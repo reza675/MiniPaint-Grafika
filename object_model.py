@@ -7,7 +7,6 @@ Setiap objek yang digambar pada canvas disimpan sebagai DrawingObject.
 import copy
 import math
 
-# Counter global untuk ID unik objek
 _next_id = 1
 
 
@@ -64,7 +63,7 @@ class DrawingObject:
         self.scale_factor = 1.0
         self.text_content = text_content
         self.image_path = image_path
-        self.image_ref = None  # Simpan referensi PhotoImage
+        self.image_ref = None
         self.pil_image = None
         self.canvas_ids = []
 
@@ -114,7 +113,7 @@ class DrawingObject:
             new_obj.pil_image = pil_image.copy() if pil_image is not None else None
         except Exception:
             new_obj.pil_image = pil_image
-        new_obj.canvas_ids = []  # Canvas IDs tidak di-copy
+        new_obj.canvas_ids = []
         return new_obj
 
     def __repr__(self):

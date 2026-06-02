@@ -15,7 +15,6 @@ from drawing_algorithms import (
 )
 from transform import translate, rotate, scale, reflect
 
-# Cek ketersediaan Pillow
 try:
     from PIL import Image, ImageTk, ImageGrab, ImageDraw
     HAS_PIL = True
@@ -46,18 +45,13 @@ class CanvasManager:
         self.root = root
         self.status_callback = status_callback
 
-        # Daftar semua objek pada canvas
         self.objects = []
 
-        # Undo stack: menyimpan snapshot daftar objek
         self.undo_stack = []
         self.max_undo = 50
 
-        # Tool aktif: "select", "line", "bezier", "rectangle",
-        #             "circle", "triangle", "fill", "text"
         self.current_tool = "line"
 
-        # Atribut visual aktif
         self.current_color = "#000000"
         self.current_fill_color = None
         self.current_line_width = 2
@@ -66,13 +60,11 @@ class CanvasManager:
         self.current_curve_algorithm = "Bezier"
         self.current_fill_algorithm = "Flood Fill"
 
-        # State menggambar
         self.is_drawing = False
         self.start_x = 0
         self.start_y = 0
-        self.preview_ids = []  # ID item preview sementara
+        self.preview_ids = []
 
-        # State seleksi
         self.selected_object = None
         self.selected_objects = []
         self.selection_box_ids = []
@@ -81,8 +73,7 @@ class CanvasManager:
         self.marquee_min_size = 5
         self._suppress_selection_refresh = False
 
-        # Interactive selection transform state
-        self.selection_mode = None  # None | 'translate' | 'rotate'
+        self.selection_mode = None
         self.selection_drag_start = (0, 0)
         self.selection_orig_points = None
         self.selection_orig_points_by_id = None
@@ -90,15 +81,12 @@ class CanvasManager:
         self.selection_center = None
         self.selection_control_index = None
 
-        # State bezier
         self.bezier_points = []
         self.bezier_preview_ids = []
 
-        # State pencil/eraser
         self.freehand_points = []
         self.freehand_preview_ids = []
 
-        # Bind mouse events
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
@@ -117,7 +105,6 @@ class CanvasManager:
     def on_mouse_move(self, event):
         """Update posisi mouse di status bar."""
         x, y = event.x, event.y
-        # Change cursor if hovering over selection handles when in select mode
         if self.current_tool == 'select':
             if (self.selected_object and
                 self.selected_object.obj_type == 'bezier' and
@@ -138,13 +125,13 @@ class CanvasManager:
             for cid in items:
                 tags = self.canvas.gettags(cid)
                 if 'rotation_handle' in tags:
-                    cursor = 'exchange'  # rotate-like cursor
+                    cursor = 'exchange'
                     break
                 if any(t.startswith('corner_') for t in tags):
-                    cursor = 'size_nw_se'  # generic scale cursor
+                    cursor = 'size_nw_se'
                     break
                 if 'selection_handle' in tags or 'selection_box' in tags:
-                    cursor = 'fleur'  # move
+                    cursor = 'fleur'
                     break
             if cursor:
                 try:
@@ -156,7 +143,6 @@ class CanvasManager:
                     self.canvas.config(cursor='arrow')
                 except Exception:
                     pass
-                # default status update
                 if self.status_callback:
                     self.status_callback(
                         f"Tool: {self.current_tool.capitalize()} | "
@@ -176,7 +162,6 @@ class CanvasManager:
         x, y = event.x, event.y
 
         if self.current_tool == "select":
-            # If clicking on selection visuals, start translate/rotate instead of re-selecting
             clicked = False
 
             control_idx = None
@@ -189,39 +174,32 @@ class CanvasManager:
                 self._push_undo()
                 return
 
-            # find small overlapping items at the click
             items = self.canvas.find_overlapping(x, y, x, y)
             for cid in items:
                 tags = self.canvas.gettags(cid)
                 if 'rotation_handle' in tags and self.selected_object:
-                    # Start rotation
                     self.selection_mode = 'rotate'
                     self.selection_center = self.selected_object.get_center()
                     cx, cy = self.selection_center
-                    # angle in degrees from center to mouse
                     self.selection_rotate_start_angle = math.degrees(math.atan2(y - cy, x - cx))
                     self.selection_orig_points = [p for p in self.selected_object.points]
                     self.selection_orig_rotation = getattr(self.selected_object, 'rotation', 0.0)
-                    # Save undo snapshot for the whole drag operation
                     self._push_undo()
                     clicked = True
                     break
                 if any(t.startswith('corner_') for t in tags) and self.selected_object:
-                    # Start scale from corner
                     corner_tag = [t for t in tags if t.startswith('corner_')][0]
                     corner_idx = int(corner_tag.split('_')[1])
                     self.selection_mode = 'scale'
                     self.selection_scale_corner = corner_idx
                     self.selection_orig_points = [p for p in self.selected_object.points]
                     self.selection_scale_origin = self.selected_object.get_center()
-                    # store original scale metadata
                     self.selection_orig_scale = getattr(self.selected_object, 'scale_factor', 1.0)
                     self.selection_drag_start = (x, y)
                     self._push_undo()
                     clicked = True
                     break
                 if ('selection_box' in tags or 'selection_handle' in tags) and self.selected_object:
-                    # Start translate
                     self.selection_mode = 'translate'
                     self.selection_drag_start = (x, y)
                     self.selection_orig_points = [p for p in self.selected_object.points]
@@ -233,7 +211,6 @@ class CanvasManager:
                     clicked = True
                     break
 
-            # If click didn't hit visual handles but is inside selected object's bbox, start translate
             if not clicked and self.selected_object:
                 bbox = self.selected_object.get_bbox()
                 margin = 8
@@ -252,8 +229,6 @@ class CanvasManager:
             if clicked:
                 return
 
-            # Otherwise perform selection as before. Jika klik di area kosong,
-            # drag kiri akan berubah menjadi marquee / box select.
             self._handle_select(x, y)
             if self.selected_object is None:
                 self.selection_mode = 'marquee'
@@ -269,7 +244,6 @@ class CanvasManager:
             self.freehand_points = [(x, y)]
             self.start_x, self.start_y = x, y
         else:
-            # Tools yang menggunakan drag: line, rectangle, circle, triangle, trapezium, ellipse
             self.is_drawing = True
             self.start_x = x
             self.start_y = y
@@ -280,7 +254,6 @@ class CanvasManager:
             self.on_marquee_drag(event)
             return
 
-        # If an interactive selection transform is active, handle it
         if self.current_tool == 'select' and self.selection_mode and self.selected_object:
             x, y = event.x, event.y
             obj = self.selected_object
@@ -301,7 +274,6 @@ class CanvasManager:
                             selected.points = translate(orig_points, dx, dy)
                     self.render_all()
                 else:
-                    # Apply translation relative to original points
                     obj.points = translate(self.selection_orig_points, dx, dy)
                     self.render_object(obj)
                 return
@@ -310,49 +282,36 @@ class CanvasManager:
                 start_angle = self.selection_rotate_start_angle
                 curr_angle = math.degrees(math.atan2(y - cy, x - cx))
                 delta = curr_angle - start_angle
-                # Rotate original points by delta
                 obj.points = rotate(self.selection_orig_points, delta, (cx, cy))
                 obj.rotation = self.selection_orig_rotation + delta
                 self.render_object(obj)
                 return
             elif self.selection_mode == 'scale':
-                # Proportional scaling based on dragged corner
-                # Determine bbox of original points
                 orig_pts = self.selection_orig_points
                 xs = [p[0] for p in orig_pts]
                 ys = [p[1] for p in orig_pts]
                 x_min, x_max = min(xs), max(xs)
                 y_min, y_max = min(ys), max(ys)
 
-                # corner index mapping: 0=tl,1=tr,2=bl,3=br (as created)
                 corner_idx = getattr(self, 'selection_scale_corner', 3)
-                # opposite corner
                 opp = {0:3, 1:2, 2:1, 3:0}[corner_idx]
                 corners = [(x_min, y_min), (x_max, y_min), (x_min, y_max), (x_max, y_max)]
                 ox, oy = corners[opp]
 
-                # original distance from opposite corner to dragged corner
                 sx0, sy0 = corners[corner_idx]
-                # current mouse position (x,y) determines new corner position
                 nx, ny = x, y
 
-                # Compute scale factors along x and y (proportional scaling uses average)
                 orig_dx = sx0 - ox
                 orig_dy = sy0 - oy
                 new_dx = nx - ox
                 new_dy = ny - oy
 
-                # Avoid division by zero
                 sx_fact = (new_dx / orig_dx) if orig_dx != 0 else (new_dx / (abs(orig_dx) + 1e-6))
                 sy_fact = (new_dy / orig_dy) if orig_dy != 0 else (new_dy / (abs(orig_dy) + 1e-6))
-                # Use uniform scale = average of absolute factors, preserve sign
                 scale_factor = (abs(sx_fact) + abs(sy_fact)) / 2.0
-                # Determine final factor sign by area ratio
                 if (sx_fact < 0) ^ (sy_fact < 0):
-                    # If signs differ, keep positive scale (flip handled by reflect)
                     pass
 
-                # Apply scaling around opposite corner (ox,oy)
                 obj.points = scale(self.selection_orig_points, scale_factor, (ox, oy))
                 obj.scale_factor = getattr(self, 'selection_orig_scale', 1.0) * scale_factor
                 self.render_object(obj)
@@ -363,7 +322,6 @@ class CanvasManager:
 
         x, y = event.x, event.y
 
-        # Hapus preview sebelumnya
         for pid in self.preview_ids:
             self.canvas.delete(pid)
         self.preview_ids = []
@@ -389,7 +347,6 @@ class CanvasManager:
             self.preview_ids.append(pid)
 
         elif self.current_tool == "circle":
-            # Hitung radius
             dx = x - self.start_x
             dy = y - self.start_y
             r = math.sqrt(dx * dx + dy * dy)
@@ -403,12 +360,11 @@ class CanvasManager:
             self.preview_ids.append(pid)
 
         elif self.current_tool == "triangle":
-            # Segitiga: titik atas = titik awal, alas = drag
             mid_x = (self.start_x + x) / 2
             points = [
-                mid_x, self.start_y,  # Puncak
-                self.start_x, y,       # Kiri bawah
-                x, y                    # Kanan bawah
+                mid_x, self.start_y,
+                self.start_x, y,
+                x, y
             ]
             pid = self.canvas.create_polygon(
                 points,
@@ -420,7 +376,6 @@ class CanvasManager:
             self.preview_ids.append(pid)
 
         elif self.current_tool == "trapezium":
-            # Trapezium: sisi atas lebih pendek dari sisi bawah
             w = abs(x - self.start_x)
             points = [
                 self.start_x + w * 0.25, self.start_y,
@@ -468,16 +423,13 @@ class CanvasManager:
             self.on_marquee_up(event)
             return
 
-        # If we were doing an interactive selection transform, finalize it
         if self.selection_mode is not None:
-            # End translate/rotate mode
             self.selection_mode = None
             self.selection_drag_start = (0, 0)
             self.selection_orig_points = None
             self.selection_orig_points_by_id = None
             self.selection_center = None
             self.selection_control_index = None
-            # No further action required; render_object was called during drag
             return
 
         if not self.is_drawing:
@@ -486,12 +438,10 @@ class CanvasManager:
         self.is_drawing = False
         x, y = event.x, event.y
 
-        # Hapus preview
         for pid in self.preview_ids:
             self.canvas.delete(pid)
         self.preview_ids = []
 
-        # Simpan state untuk undo
         self._push_undo()
 
         if self.current_tool == "line":
@@ -516,7 +466,6 @@ class CanvasManager:
                 line_width=w
             )
             self.objects.append(obj)
-            # Karena freehand preview sudah tergambar di canvas, hapus preview
             for pid in self.freehand_preview_ids:
                 self.canvas.delete(pid)
             self.freehand_preview_ids = []
@@ -608,7 +557,7 @@ class CanvasManager:
         r = math.sqrt(dx * dx + dy * dy)
         obj = DrawingObject(
             obj_type="circle",
-            points=[(cx, cy), (cx + r, cy)],  # Pusat + titik di radius
+            points=[(cx, cy), (cx + r, cy)],
             outline_color=self.current_color,
             fill_color=None,
             line_width=self.current_line_width,
@@ -676,7 +625,6 @@ class CanvasManager:
         """
         self.bezier_points.append((x, y))
 
-        # Gambar titik kontrol
         r = 4
         dot_id = self.canvas.create_oval(
             x - r, y - r, x + r, y + r,
@@ -684,7 +632,6 @@ class CanvasManager:
         )
         self.bezier_preview_ids.append(dot_id)
 
-        # Gambar garis penghubung titik kontrol
         if len(self.bezier_points) > 1:
             prev = self.bezier_points[-2]
             line_id = self.canvas.create_line(
@@ -693,11 +640,9 @@ class CanvasManager:
             )
             self.bezier_preview_ids.append(line_id)
 
-        # Jika sudah 4 titik, buat kurva
         if len(self.bezier_points) >= 4:
             self._push_undo()
 
-            # Hapus preview titik kontrol
             for pid in self.bezier_preview_ids:
                 self.canvas.delete(pid)
             self.bezier_preview_ids = []
@@ -726,7 +671,6 @@ class CanvasManager:
         """
         fill_color = self.current_fill_color or self.current_color
 
-        # Jika klik pada shape, isi shape tersebut dulu
         target = self._find_fill_target(x, y)
         if target is not None:
             if target.fill_color == fill_color:
@@ -738,8 +682,6 @@ class CanvasManager:
 
         self._push_undo()
 
-        # Ambil snapshot canvas sebagai PhotoImage
-        # Untuk flood fill, kita perlu data pixel canvas
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
@@ -864,11 +806,8 @@ class CanvasManager:
     def _flood_fill_pil(self, x, y, width, height):
         """Flood fill menggunakan Pillow untuk akses pixel."""
         try:
-            # Render canvas contents into a PIL Image instead of screen capture.
-            # This avoids requiring screen access / ImageGrab permissions.
             img = self._render_canvas_to_pil(width, height)
 
-            # Ambil warna target
             if x < 0 or x >= img.width or y < 0 or y >= img.height:
                 return
 
@@ -879,7 +818,6 @@ class CanvasManager:
             if target_color == fill_rgb:
                 return
 
-            # Flood fill / Boundary fill pada image
             pixels = img.load()
             tolerance = 30
             stack = [(x, y)]
@@ -937,8 +875,6 @@ class CanvasManager:
             for px, py in filled_pixels:
                 layer_pixels[px - min_x, py - min_y] = (*fill_rgb, 255)
 
-            # Simpan fill sebagai layer transparan agar bisa di-render ulang,
-            # di-fill lagi, dan dipilih dari area warnanya.
             tk_img = ImageTk.PhotoImage(layer)
             fill_obj = DrawingObject(
                 obj_type="fill",
@@ -954,7 +890,6 @@ class CanvasManager:
         except Exception as e:
             messagebox.showwarning("Fill Error",
                 f"Flood fill gagal: {str(e)}\nPastikan Pillow terinstall dan akses screenshot diizinkan.")
-            # Fallback ke metode sederhana
             self._flood_fill_simple(x, y)
 
     def _render_canvas_to_pil(self, width, height):
@@ -1025,22 +960,18 @@ class CanvasManager:
                 elif otype == 'freehand':
                     pts = [tuple(p) for p in obj.points]
                     if len(pts) >= 2:
-                        # Rasterize freehand slightly thicker and close near-closed paths
                         w = max(1, int(obj.line_width) + 1)
                         if obj.fill_color and self._is_closed_path(pts):
                             draw.polygon(pts, fill=obj.fill_color)
                         draw.line(pts, fill=obj.outline_color, width=w)
-                        # Seal tiny gaps at joints
                         r = max(1, int(w / 2))
                         for px, py in pts:
                             draw.ellipse([px - r, py - r, px + r, py + r], fill=obj.outline_color, outline=obj.outline_color)
-                        # If start/end are very close, connect them to close the shape
                         sx, sy = pts[0]
                         ex, ey = pts[-1]
                         if (sx - ex) ** 2 + (sy - ey) ** 2 <= 36:
                             draw.line([(sx, sy), (ex, ey)], fill=obj.outline_color, width=w)
                 elif otype == 'text':
-                    # Simple text draw (no advanced font handling)
                     xy = obj.points[0]
                     draw.text((xy[0], xy[1]), str(obj.text_content or ''), fill=obj.outline_color)
                 elif otype == 'image':
@@ -1052,7 +983,6 @@ class CanvasManager:
                     if pil is not None:
                         self._paste_pil_layer(img, pil, obj.points)
             except Exception:
-                # Ignore rendering errors for individual objects
                 continue
 
         return img
@@ -1086,14 +1016,11 @@ class CanvasManager:
         Menggunakan canvas.find_overlapping untuk deteksi area,
         lalu menggambar rectangle kecil sebagai fill.
         """
-        # Buat PhotoImage dari canvas
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
-        # Metode sederhana: gambar oval besar di posisi klik
-        # sebagai representasi fill
         fill_color = self.current_fill_color or self.current_color
-        r = 50  # Radius fill area
+        r = 50
         fill_obj = DrawingObject(
             obj_type="fill",
             points=[(x - r, y - r), (x + r, y + r)],
@@ -1147,7 +1074,6 @@ class CanvasManager:
         """
         self._clear_selection()
 
-        # Cari objek dari yang terbaru (di atas)
         for obj in reversed(self.objects):
             if obj.obj_type == "fill":
                 if self._point_in_fill_object(x, y, obj):
@@ -1171,7 +1097,6 @@ class CanvasManager:
                 self._set_selected_objects([obj])
                 return
 
-        # Tidak ada objek yang ditemukan
         self._set_selected_objects([])
 
     def _handle_area_select(self, area_bbox):
@@ -1277,7 +1202,6 @@ class CanvasManager:
         )
         self.selection_box_ids.append(fill_id)
 
-        # Gambar kotak seleksi (dashed)
         box_id = self.canvas.create_rectangle(
             bbox[0] - margin, bbox[1] - margin,
             bbox[2] + margin, bbox[3] + margin,
@@ -1289,7 +1213,6 @@ class CanvasManager:
         if not is_primary:
             return
 
-        # Gambar handle di sudut-sudut
         handle_size = 5
         corners = [
             (bbox[0] - margin, bbox[1] - margin),
@@ -1298,7 +1221,6 @@ class CanvasManager:
             (bbox[2] + margin, bbox[3] + margin),
         ]
         for cx, cy in corners:
-            # Determine corner index for tagging
             idx = corners.index((cx, cy))
             h_id = self.canvas.create_rectangle(
                 cx - handle_size, cy - handle_size,
@@ -1308,7 +1230,6 @@ class CanvasManager:
             )
             self.selection_box_ids.append(h_id)
 
-        # Gambar rotation handle (circle) slightly above the top-right corner
         rx = bbox[2] + margin + 12
         ry = bbox[1] - margin - 12
         rsize = 6
@@ -1317,7 +1238,6 @@ class CanvasManager:
             fill="#FFB74D", outline="#F57C00",
             tags=("rotation_handle", "selection_handle")
         )
-        # Optional: draw a small rotate icon (text) on top for affordance
         txt_id = self.canvas.create_text(rx, ry, text="⤾", fill="#4E342E", font=("Segoe UI", 8), tags=("rotation_handle",))
         self.selection_box_ids.append(rot_id)
         self.selection_box_ids.append(txt_id)
@@ -1343,7 +1263,6 @@ class CanvasManager:
         Menggambar satu objek pada canvas.
         Menghapus item canvas lama lalu buat yang baru.
         """
-        # Hapus item canvas lama
         for cid in obj.canvas_ids:
             self.canvas.delete(cid)
         obj.canvas_ids = []
@@ -1373,7 +1292,6 @@ class CanvasManager:
         elif obj.obj_type == "freehand":
             self._render_freehand(obj, dash)
 
-        # Update selection box jika objek ini yang dipilih
         if (not self._suppress_selection_refresh and
             self.selected_objects and
             any(selected.id == obj.id for selected in self.selected_objects)):
@@ -1390,15 +1308,12 @@ class CanvasManager:
         x1, y1 = obj.points[0]
         x2, y2 = obj.points[1]
 
-        # Hitung pixel menggunakan algoritma Bresenham
         algo = obj.algorithm or getattr(self, 'current_line_algorithm', 'Bresenham')
         if algo == "DDA":
             pixels = dda_line(x1, y1, x2, y2)
         else:
             pixels = bresenham_line(x1, y1, x2, y2)
 
-        # Untuk efisiensi + visual: gambar garis native canvas
-        # tapi simpan info algoritma
         w = obj.line_width
         cid = self.canvas.create_line(
             x1, y1, x2, y2,
@@ -1410,11 +1325,8 @@ class CanvasManager:
         )
         obj.canvas_ids.append(cid)
 
-        # Jika line_width == 1, juga gambar pixel Bresenham untuk demo
         if w <= 2 and len(pixels) < 500:
-            # Gambar beberapa pixel Bresenham sebagai demonstrasi
-            # (hanya untuk garis pendek, supaya visible)
-            pass  # Pixel visible melalui garis canvas
+            pass
 
     def _render_rectangle(self, obj, dash):
         """Render persegi panjang."""
@@ -1508,7 +1420,6 @@ class CanvasManager:
         if len(obj.points) < 2:
             return
 
-        # Hitung titik-titik kurva menggunakan algoritma Bezier
         algo = (obj.algorithm or self.current_curve_algorithm or "Bezier").lower()
         if "spline" in algo:
             curve_pts = bspline_curve(obj.points, num_segments=200)
@@ -1518,7 +1429,6 @@ class CanvasManager:
         if len(curve_pts) < 2:
             return
 
-        # Gambar kurva sebagai rangkaian segmen garis
         coords = []
         for p in curve_pts:
             coords.extend([p[0], p[1]])
@@ -1528,13 +1438,12 @@ class CanvasManager:
             fill=obj.outline_color,
             width=obj.line_width,
             dash=dash,
-            smooth=False,  # Titik sudah halus dari algoritma
+            smooth=False,
             capstyle=tk.ROUND,
             joinstyle=tk.ROUND
         )
         obj.canvas_ids.append(cid)
 
-        # Gambar titik kontrol
         for p in obj.points:
             dot_id = self.canvas.create_oval(
                 p[0]-3, p[1]-3, p[0]+3, p[1]+3,
@@ -1587,7 +1496,6 @@ class CanvasManager:
         )
         obj.canvas_ids.append(cid)
 
-        # Update bounding box berdasarkan ukuran teks actual
         bbox = self.canvas.bbox(cid)
         if bbox:
             obj.points = [(bbox[0], bbox[1]), (bbox[2], bbox[3])]
@@ -1599,7 +1507,6 @@ class CanvasManager:
 
         x1, y1 = obj.points[0]
         draw_x, draw_y = x1, y1
-        # Determine target size from second point if present
         if len(obj.points) > 1:
             x2, y2 = obj.points[1]
             left, right = sorted((x1, x2))
@@ -1617,7 +1524,6 @@ class CanvasManager:
             else:
                 return
 
-        # If PIL source exists, resize it to target size and create a PhotoImage
         if HAS_PIL and getattr(obj, 'pil_image', None) is not None:
             try:
                 pil_src = obj.pil_image
@@ -1633,10 +1539,8 @@ class CanvasManager:
                     resized = pil_src.resize((w, h), Image.LANCZOS)
                     obj.image_ref = ImageTk.PhotoImage(resized)
             except Exception:
-                # fallback to existing image_ref
                 pass
 
-        # Draw the image at top-left
         cid = self.canvas.create_image(draw_x, draw_y, anchor=tk.NW, image=getattr(obj, 'image_ref', None))
         obj.canvas_ids.append(cid)
 
@@ -1647,7 +1551,6 @@ class CanvasManager:
 
         pil_img = getattr(obj, 'pil_image', None)
         if pil_img is None:
-            # Fallback untuk fill sederhana tanpa Pillow.
             if len(obj.points) >= 2:
                 x1, y1 = obj.points[0]
                 x2, y2 = obj.points[1]
@@ -1688,8 +1591,6 @@ class CanvasManager:
 
         self._suppress_selection_refresh = True
         try:
-            # Layer fill raster harus berada di bawah outline/shape,
-            # tapi urutan antar-fill tetap dipertahankan agar fill ulang terlihat.
             for obj in self.objects:
                 if obj.obj_type == "fill":
                     self.render_object(obj)
@@ -1770,7 +1671,6 @@ class CanvasManager:
 
         self._clear_selection()
 
-        # Restore state dari snapshot
         snapshot = self.undo_stack.pop()
         self.canvas.delete("all")
         self.objects = snapshot
@@ -1817,7 +1717,6 @@ class CanvasManager:
 
         if HAS_PIL and filepath.lower().endswith('.png'):
             try:
-                # Metode 1: Screenshot canvas menggunakan ImageGrab
                 x = self.canvas.winfo_rootx()
                 y = self.canvas.winfo_rooty()
                 w = self.canvas.winfo_width()
@@ -1826,7 +1725,6 @@ class CanvasManager:
                 img.save(filepath)
                 messagebox.showinfo("Sukses", f"Canvas disimpan ke:\n{filepath}")
             except Exception as e:
-                # Metode 2: PostScript convert
                 try:
                     ps_file = filepath.replace('.png', '.ps')
                     self.canvas.postscript(file=ps_file, colormode='color')
@@ -1838,7 +1736,6 @@ class CanvasManager:
                 except Exception as e2:
                     messagebox.showerror("Error", f"Gagal menyimpan: {str(e2)}")
         else:
-            # Simpan sebagai PostScript
             try:
                 if not filepath.lower().endswith('.ps'):
                     filepath += '.ps'
@@ -1868,7 +1765,6 @@ class CanvasManager:
         try:
             if HAS_PIL:
                 pil_img = Image.open(filepath)
-                # Resize jika terlalu besar
                 max_size = 400
                 if pil_img.width > max_size or pil_img.height > max_size:
                     ratio = min(max_size / pil_img.width, max_size / pil_img.height)
@@ -1876,10 +1772,8 @@ class CanvasManager:
                     pil_img = pil_img.resize(new_size, Image.LANCZOS)
                 tk_img = ImageTk.PhotoImage(pil_img)
             else:
-                # Tanpa Pillow, hanya support GIF dan PGM/PPM
                 tk_img = tk.PhotoImage(file=filepath)
 
-            # Letakkan gambar di tengah canvas
             cx = self.canvas.winfo_width() // 2
             cy = self.canvas.winfo_height() // 2
             
@@ -1894,8 +1788,7 @@ class CanvasManager:
                 points=[(x1, y1), (x2, y2)],
                 image_path=filepath
             )
-            obj.image_ref = tk_img  # Simpan referensi agar tidak di-GC
-            # Jika tersedia Pillow, simpan juga sumber PIL agar bisa di-resize/rotate
+            obj.image_ref = tk_img
             if HAS_PIL:
                 try:
                     obj.pil_image = pil_img.copy()
@@ -1926,12 +1819,11 @@ class CanvasManager:
             return (10, 5)
         elif style == "dotted":
             return (2, 4)
-        else:  # solid
+        else:
             return ()
 
     def set_tool(self, tool):
         """Mengubah tool aktif."""
-        # Bersihkan state bezier jika pindah tool
         if self.current_tool == "bezier" and tool != "bezier":
             for pid in self.bezier_preview_ids:
                 self.canvas.delete(pid)
@@ -1940,7 +1832,6 @@ class CanvasManager:
 
         self.current_tool = tool
 
-        # Ubah cursor sesuai tool
         cursors = {
             "select": "arrow",
             "line": "crosshair",
