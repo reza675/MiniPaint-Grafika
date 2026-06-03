@@ -65,6 +65,115 @@ def bresenham_line(x1, y1, x2, y2):
 
 
 # ============================================================
+# ALGORITMA LINGKARAN MIDPOINT / BRESENHAM
+# ============================================================
+
+def midpoint_circle(cx, cy, radius):
+    cx = int(round(cx))
+    cy = int(round(cy))
+    radius = int(round(abs(radius)))
+
+    if radius == 0:
+        return [(cx, cy)]
+
+    points = set()
+
+    def add_circle_points(x, y):
+        points.update({
+            (cx + x, cy + y),
+            (cx - x, cy + y),
+            (cx + x, cy - y),
+            (cx - x, cy - y),
+            (cx + y, cy + x),
+            (cx - y, cy + x),
+            (cx + y, cy - x),
+            (cx - y, cy - x),
+        })
+
+    x = 0
+    y = radius
+    p = 1 - radius
+
+    add_circle_points(x, y)
+    while x < y:
+        x += 1
+        if p < 0:
+            p += 2 * x + 1
+        else:
+            y -= 1
+            p += 2 * x - 2 * y + 1
+        add_circle_points(x, y)
+
+    return sorted(points, key=lambda point: math.atan2(point[1] - cy, point[0] - cx))
+
+
+# ============================================================
+# ALGORITMA ELIPS MIDPOINT
+# ============================================================
+
+def midpoint_ellipse(cx, cy, rx, ry):
+
+    cx = int(round(cx))
+    cy = int(round(cy))
+    rx = int(round(abs(rx)))
+    ry = int(round(abs(ry)))
+
+    if rx == 0 and ry == 0:
+        return [(cx, cy)]
+    if rx == 0:
+        return [(cx, cy + y) for y in range(-ry, ry + 1)]
+    if ry == 0:
+        return [(cx + x, cy) for x in range(-rx, rx + 1)]
+
+    points = set()
+
+    def add_ellipse_points(x, y):
+        points.update({
+            (cx + x, cy + y),
+            (cx - x, cy + y),
+            (cx + x, cy - y),
+            (cx - x, cy - y),
+        })
+
+    x = 0
+    y = ry
+    rx2 = rx * rx
+    ry2 = ry * ry
+    dx = 2 * ry2 * x
+    dy = 2 * rx2 * y
+
+    p1 = ry2 - (rx2 * ry) + (0.25 * rx2)
+
+    while dx < dy:
+        add_ellipse_points(x, y)
+        x += 1
+        dx += 2 * ry2
+
+        if p1 < 0:
+            p1 += dx + ry2
+        else:
+            y -= 1
+            dy -= 2 * rx2
+            p1 += dx - dy + ry2
+
+    p2 = (ry2 * ((x + 0.5) ** 2)) + (rx2 * ((y - 1) ** 2)) - (rx2 * ry2)
+
+    while y >= 0:
+        add_ellipse_points(x, y)
+        y -= 1
+        dy -= 2 * rx2
+
+        if p2 > 0:
+            p2 += rx2 - dy
+        else:
+            x += 1
+            dx += 2 * ry2
+            p2 += dx - dy + rx2
+
+    return sorted(points, key=lambda point: math.atan2(point[1] - cy, point[0] - cx))
+
+
+# ============================================================
 # ALGORITMA KURVA BEZIER (KUBIK)
 # ============================================================
 

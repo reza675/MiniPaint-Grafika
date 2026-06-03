@@ -5,7 +5,8 @@ import copy
 
 from object_model import DrawingObject, reset_id_counter
 from drawing_algorithms import (
-    dda_line, bresenham_line, bezier_curve, bspline_curve, flood_fill, boundary_fill, hex_to_rgb
+    dda_line, bresenham_line, midpoint_circle, midpoint_ellipse,
+    bezier_curve, bspline_curve, flood_fill, boundary_fill, hex_to_rgb
 )
 from transform import translate, rotate, scale, reflect
 
@@ -18,6 +19,7 @@ except ImportError:
 
 class CanvasManager:
     def __init__(self, canvas, root, status_callback=None):
+        
         self.canvas = canvas
         self.root = root
         self.status_callback = status_callback
@@ -1248,6 +1250,29 @@ class CanvasManager:
         )
         obj.canvas_ids.append(cid)
 
+    def _filter_midpoint_points_for_style(self, points, style):
+        """Terapkan style solid/dashed/dotted pada titik hasil midpoint."""
+        if style == "dashed":
+            return [point for idx, point in enumerate(points) if idx % 24 < 14]
+        if style == "dotted":
+            return [point for idx, point in enumerate(points) if idx % 7 < 2]
+        return points
+
+    def _draw_midpoint_pixels(self, obj, points):
+        """Gambar kumpulan titik algoritma midpoint sebagai pixel kotak kecil."""
+        styled_points = self._filter_midpoint_points_for_style(points, obj.line_style)
+        pixel_size = max(1, int(round(obj.line_width)))
+        half = pixel_size / 2
+
+        for px, py in styled_points:
+            cid = self.canvas.create_rectangle(
+                px - half, py - half, px + half, py + half,
+                outline=obj.outline_color,
+                fill=obj.outline_color,
+                width=0
+            )
+            obj.canvas_ids.append(cid)
+
     def _render_circle(self, obj, dash):
         if len(obj.points) < 2:
             return
@@ -1256,14 +1281,16 @@ class CanvasManager:
         rx, ry = obj.points[1]
         r = math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
 
-        cid = self.canvas.create_oval(
-            cx - r, cy - r, cx + r, cy + r,
-            outline=obj.outline_color,
-            fill=obj.fill_color if obj.fill_color else '',
-            width=obj.line_width,
-            dash=dash
-        )
-        obj.canvas_ids.append(cid)
+        if obj.fill_color:
+            fill_id = self.canvas.create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                outline='',
+                fill=obj.fill_color
+            )
+            obj.canvas_ids.append(fill_id)
+
+        pixels = midpoint_circle(cx, cy, r)
+        self._draw_midpoint_pixels(obj, pixels)
 
     def _render_triangle(self, obj, dash):
         if len(obj.points) < 3:
@@ -1302,14 +1329,24 @@ class CanvasManager:
             return
         x1, y1 = obj.points[0]
         x2, y2 = obj.points[1]
-        cid = self.canvas.create_oval(
-            x1, y1, x2, y2,
-            outline=obj.outline_color,
-            fill=obj.fill_color if obj.fill_color else '',
-            width=obj.line_width,
-            dash=dash
-        )
-        obj.canvas_ids.append(cid)
+
+        left, right = sorted((x1, x2))
+        top, bottom = sorted((y1, y2))
+        cx = (left + right) / 2
+        cy = (top + bottom) / 2
+        rx = (right - left) / 2
+        ry = (bottom - top) / 2
+
+        if obj.fill_color:
+            fill_id = self.canvas.create_oval(
+                left, top, right, bottom,
+                outline='',
+                fill=obj.fill_color
+            )
+            obj.canvas_ids.append(fill_id)
+
+        pixels = midpoint_ellipse(cx, cy, rx, ry)
+        self._draw_midpoint_pixels(obj, pixels)
 
     def _render_bezier(self, obj, dash):
         if len(obj.points) < 2:
