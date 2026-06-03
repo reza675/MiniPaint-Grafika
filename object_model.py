@@ -1,9 +1,3 @@
-"""
-object_model.py
-Struktur data objek gambar untuk Mini Paint Application.
-Setiap objek yang digambar pada canvas disimpan sebagai DrawingObject.
-"""
-
 import copy
 import math
 
@@ -11,7 +5,6 @@ _next_id = 1
 
 
 def _generate_id():
-    """Menghasilkan ID unik untuk setiap objek."""
     global _next_id
     obj_id = _next_id
     _next_id += 1
@@ -19,35 +12,11 @@ def _generate_id():
 
 
 def reset_id_counter():
-    """Reset counter ID (dipakai saat clear canvas)."""
     global _next_id
     _next_id = 1
 
 
 class DrawingObject:
-    """
-    Representasi satu objek gambar pada canvas.
-    
-    Tipe objek yang didukung:
-      - line, rectangle, circle, triangle, bezier, fill, text, image
-    
-    Atribut:
-      - id: ID unik objek
-      - obj_type: tipe objek (string)
-      - points: list of (x, y) tuples — koordinat utama objek
-      - outline_color: warna garis (hex string)
-      - fill_color: warna isi (hex string atau None)
-      - line_width: ketebalan garis (int, pixel)
-      - line_style: style garis ("solid", "dashed", "dotted")
-      - rotation: sudut rotasi kumulatif (derajat)
-      - scale_factor: faktor skala kumulatif
-      - text_content: isi teks (untuk objek tipe text)
-      - image_path: path file gambar (untuk objek tipe image)
-      - image_ref: referensi PhotoImage (agar tidak di-garbage-collect)
-      - pil_image: referensi PIL.Image untuk render ulang image/fill
-      - canvas_ids: list ID item canvas Tkinter yang merepresentasikan objek ini
-    """
-
     def __init__(self, obj_type, points=None, outline_color="#000000",
                  fill_color=None, line_width=2, line_style="solid",
                  text_content=None, image_path=None, algorithm=None):
@@ -68,7 +37,6 @@ class DrawingObject:
         self.canvas_ids = []
 
     def get_center(self):
-        """Menghitung titik pusat dari bounding box objek."""
         if not self.points:
             return (0, 0)
         if self.obj_type == "circle" and len(self.points) >= 2:
@@ -80,7 +48,6 @@ class DrawingObject:
         return (cx, cy)
 
     def get_bbox(self):
-        """Menghitung bounding box (x_min, y_min, x_max, y_max)."""
         if not self.points:
             return (0, 0, 0, 0)
         if self.obj_type == "circle" and len(self.points) >= 2:
@@ -93,7 +60,6 @@ class DrawingObject:
         return (min(xs), min(ys), max(xs), max(ys))
 
     def clone(self):
-        """Membuat deep copy objek untuk undo stack."""
         new_obj = DrawingObject.__new__(DrawingObject)
         new_obj.id = self.id
         new_obj.obj_type = self.obj_type

@@ -1,23 +1,7 @@
-"""
-animation.py
-Controller untuk animasi objek pada canvas.
-Mendukung tiga jenis animasi:
-  - Bounce: objek bergerak kiri-kanan (translasi)
-  - Pulse: objek membesar-mengecil (scaling)
-  - Spin: objek berputar perlahan (rotasi)
-"""
-
 from transform import translate, rotate, scale
 
 
 class AnimationController:
-    """
-    Mengontrol animasi pada objek yang dipilih.
-    
-    Menggunakan root.after() untuk loop animasi yang smooth.
-    Interval default 30ms (~33 FPS).
-    """
-
     def __init__(self, on_stop=None):
         self.is_running = False
         self.after_id = None
@@ -43,15 +27,6 @@ class AnimationController:
         self.spin_angle = 3
 
     def start(self, obj, canvas_manager, root, anim_type="bounce"):
-        """
-        Memulai animasi pada satu atau beberapa objek.
-        
-        Args:
-            obj: DrawingObject atau list DrawingObject yang akan dianimasikan
-            canvas_manager: referensi ke CanvasManager untuk re-render
-            root: Tk root window untuk after()
-            anim_type: "bounce", "pulse", atau "spin"
-        """
         self.stop()
 
         targets = obj if isinstance(obj, list) else [obj]
@@ -84,7 +59,6 @@ class AnimationController:
         self._animate_step()
 
     def stop(self):
-        """Menghentikan animasi yang sedang berjalan."""
         was_active = self.is_running or bool(self.target_objects)
         target_objects = list(self.target_objects)
         canvas_manager = self.canvas_manager
@@ -113,7 +87,6 @@ class AnimationController:
             self.on_stop()
 
     def _animate_step(self):
-        """Satu langkah animasi. Dipanggil berulang via after()."""
         if not self.is_running or not self.target_objects:
             return
         
@@ -151,18 +124,10 @@ class AnimationController:
             self.after_id = self.root.after(30, self._animate_step)
 
     def _step_bounce(self, obj):
-        """
-        Animasi bounce: objek bergerak kiri-kanan.
-        Menerapkan translasi horizontal bolak-balik.
-        """
         dx = self.bounce_dx * self.bounce_direction
         obj.points = translate(obj.points, dx, 0)
 
     def _step_pulse(self, obj):
-        """
-        Animasi pulse: objek membesar-mengecil.
-        Menghitung skala dari bentuk awal animasi, bukan kumulatif.
-        """
         if obj.id not in self.pulse_base_points:
             self.pulse_base_points[obj.id] = [p for p in obj.points]
             self.pulse_base_scale_factors[obj.id] = getattr(obj, "scale_factor", 1.0)
@@ -181,10 +146,6 @@ class AnimationController:
         obj.scale_factor = self.pulse_base_scale_factors.get(obj.id, 1.0) * factor
 
     def _step_spin(self, obj):
-        """
-        Animasi spin: objek berputar perlahan.
-        Menerapkan rotasi kecil setiap frame.
-        """
         center = obj.get_center()
         obj.points = rotate(obj.points, self.spin_angle, center)
         obj.rotation += self.spin_angle

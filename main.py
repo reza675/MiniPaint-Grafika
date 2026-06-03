@@ -1,24 +1,3 @@
-"""
-main.py
-Aplikasi Mini Paint — Entry point dan GUI utama.
-
-Menjalankan aplikasi:
-    python main.py
-
-Fitur:
-  - Canvas menggambar interaktif
-  - Tool: Line, Bezier, Rectangle, Circle, Triangle, Fill, Text, Select
-  - Algoritma: DDA/Bresenham (garis), Bezier Curve, Flood Fill
-    - Kurva: Bezier / B-Spline
-  - Atribut: Warna, Ketebalan, Style garis
-  - Transformasi: Translasi, Rotasi, Scaling
-  - Animasi: Bounce, Pulse, Spin
-  - Multimedia: Teks dan Gambar
-  - Undo, Clear Canvas, Save PNG
-
-Tugas Akhir Grafika Komputer dan Multimedia
-"""
-
 import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox
 import sys
@@ -37,11 +16,6 @@ from animation import AnimationController
 
 
 class MiniPaintApp:
-    """
-    Kelas utama aplikasi Mini Paint.
-    Membangun seluruh GUI dan menghubungkan komponen.
-    """
-
     def __init__(self, root):
         self.root = root
         self.root.title("Mini Paint — Grafika Komputer & Multimedia")
@@ -85,7 +59,6 @@ class MiniPaintApp:
         self.root.bind("<Escape>", lambda e: self._on_tool_select("select"))
 
     def _configure_styles(self):
-        """Konfigurasi style tema untuk ttk widgets."""
         self.style.configure("Dark.TFrame", background=self.BG_DARK)
         self.style.configure("Medium.TFrame", background=self.BG_MEDIUM)
 
@@ -160,7 +133,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_ui(self):
-        """Membangun seluruh antarmuka pengguna."""
         self.root.configure(bg=self.BG_DARK)
 
         main_container = tk.Frame(self.root, bg=self.BG_DARK)
@@ -186,7 +158,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_toolbar(self, parent):
-        """Membangun toolbar utama di bagian atas."""
         toolbar = tk.Frame(parent, bg=self.BG_MEDIUM, height=48)
         toolbar.pack(fill=tk.X, padx=4, pady=4)
         toolbar.pack_propagate(False)
@@ -258,7 +229,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_tool_panel(self, parent):
-        """Membangun panel tools di sisi kiri."""
         panel = tk.Frame(parent, bg=self.BG_DARK, width=130)
         panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         panel.pack_propagate(False)
@@ -343,7 +313,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_canvas(self, parent):
-        """Membangun area canvas utama."""
         canvas_frame = tk.Frame(parent, bg=self.BORDER_COLOR,
             highlightthickness=0)
         canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -367,7 +336,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_property_panel(self, parent):
-        """Membangun panel properti di sisi kanan."""
         panel = tk.Frame(parent, bg=self.BG_DARK, width=170)
         panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         panel.pack_propagate(False)
@@ -578,7 +546,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _build_status_bar(self, parent):
-        """Membangun status bar di bagian bawah."""
         self.status_bar = tk.Label(parent,
             text="Tool: Line | Objects: 0 | Position: (0, 0)",
             bg=self.BG_MEDIUM, fg=self.TEXT_SECONDARY,
@@ -591,7 +558,6 @@ class MiniPaintApp:
     # ============================================================
 
     def _on_tool_select(self, tool):
-        """Handler saat tool dipilih."""
         self.active_tool.set(tool)
         if self.canvas_mgr:
             self.canvas_mgr.set_tool(tool)
@@ -626,20 +592,17 @@ class MiniPaintApp:
         self.algo_label.config(text=algo_texts.get(tool, ""))
 
     def _on_shape_change(self, event):
-        """Handler saat shape diubah dari dropdown."""
         shape = self.shape_var.get().lower()
         if shape == "curve":
             shape = "bezier"
         self._on_tool_select(shape)
 
     def _on_fill_algo_change(self, event):
-        """Handler saat algoritma fill diubah."""
         if self.canvas_mgr:
             self.canvas_mgr.current_fill_algorithm = self.fill_algo_var.get()
             self._on_tool_select("fill")
 
     def _on_choose_color(self):
-        """Membuka color picker untuk outline color."""
         color = colorchooser.askcolor(
             initialcolor=self.canvas_mgr.current_color,
             title="Pilih Warna Outline"
@@ -653,7 +616,6 @@ class MiniPaintApp:
                 self.canvas_mgr.render_all()
 
     def _on_choose_fill_color(self):
-        """Membuka color picker untuk fill color."""
         initial = self.canvas_mgr.current_fill_color or "#FFFFFF"
         color = colorchooser.askcolor(
             initialcolor=initial,
@@ -668,7 +630,6 @@ class MiniPaintApp:
                 self.canvas_mgr.render_all()
 
     def _on_clear_fill_color(self):
-        """Menghapus fill color (set ke None)."""
         self.canvas_mgr.current_fill_color = None
         self.fill_indicator.config(bg="#FFFFFF", text="None", fg="#999999")
         if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
@@ -677,7 +638,6 @@ class MiniPaintApp:
             self.canvas_mgr.render_all()
 
     def _on_width_change(self, value):
-        """Handler saat ketebalan garis diubah."""
         w = int(float(value))
         self.canvas_mgr.current_line_width = w
         self.width_label.config(text=f"Line Width: {w} px")
@@ -687,14 +647,12 @@ class MiniPaintApp:
             self.canvas_mgr.render_all()
 
     def _on_style_change(self, event):
-        """Handler saat style garis diubah."""
         self.canvas_mgr.current_line_style = self.line_style_var.get()
         if self.active_tool.get() == "select" and self.canvas_mgr.selected_object:
             for obj in self.canvas_mgr.selected_objects or [self.canvas_mgr.selected_object]:
                 obj.line_style = self.line_style_var.get()
             self.canvas_mgr.render_all()
     def _on_algo_change(self, event):
-        """Handler saat algoritma garis diubah."""
         if not self.canvas_mgr:
             return
 
@@ -715,29 +673,23 @@ class MiniPaintApp:
             self._on_tool_select("bezier")
 
     def _on_transform(self, transform_type, **kwargs):
-        """Handler untuk tombol transformasi."""
         self.canvas_mgr.transform_selected(transform_type, **kwargs)
 
     def _on_undo(self):
-        """Handler tombol Undo."""
         self.animation_controller.stop()
         self.canvas_mgr.undo()
 
     def _on_save(self):
-        """Handler tombol Save."""
         self.canvas_mgr.save_canvas()
 
     def _on_clear_canvas(self):
-        """Handler tombol New/Clear Canvas."""
         self.animation_controller.stop()
         self.canvas_mgr.clear_canvas()
 
     def _on_insert_image(self):
-        """Handler tombol Insert Image."""
         self.canvas_mgr.insert_image()
 
     def _on_animate(self):
-        """Memulai animasi pada objek yang dipilih."""
         if self.canvas_mgr.selected_object is None:
             messagebox.showinfo("Info",
                 "Pilih objek terlebih dahulu!\n"
@@ -755,15 +707,12 @@ class MiniPaintApp:
         self._set_animation_ui_running(True)
 
     def _on_stop_animation(self):
-        """Menghentikan animasi."""
         self.animation_controller.stop()
 
     def _on_animation_stopped(self):
-        """Callback saat animasi berhenti dari tombol, delete, atau target hilang."""
         self._set_animation_ui_running(False)
 
     def _set_animation_ui_running(self, is_running):
-        """Update state tombol animasi."""
         if not hasattr(self, "btn_animate") or not hasattr(self, "btn_stop"):
             return
 
@@ -775,7 +724,6 @@ class MiniPaintApp:
             self.btn_stop.config(state=tk.DISABLED, cursor="arrow")
 
     def _delete_selected(self):
-        """Menghapus objek yang dipilih."""
         if self.canvas_mgr.selected_object is None:
             return
 
@@ -798,7 +746,6 @@ class MiniPaintApp:
         self.canvas_mgr._clear_selection()
 
     def _update_status(self, text):
-        """Update teks status bar."""
         self.status_bar.config(text=text)
 
 
@@ -807,7 +754,6 @@ class MiniPaintApp:
 # ============================================================
 
 def main():
-    """Menjalankan aplikasi Mini Paint."""
     root = tk.Tk()
 
     try:

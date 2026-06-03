@@ -1,9 +1,3 @@
-"""
-canvas_manager.py
-Mengatur canvas utama: event mouse, rendering objek, seleksi,
-undo, clear, save, dan insert image.
-"""
-
 import tkinter as tk
 from tkinter import simpledialog, filedialog, messagebox
 import math
@@ -23,24 +17,7 @@ except ImportError:
 
 
 class CanvasManager:
-    """
-    Mengelola canvas menggambar dan semua interaksi pengguna.
-    
-    Bertanggung jawab atas:
-      - Event handling (mouse down/drag/up)
-      - Rendering objek ke canvas
-      - Seleksi objek
-      - Undo, clear, save
-      - Insert image dan text
-    """
-
     def __init__(self, canvas, root, status_callback=None):
-        """
-        Args:
-            canvas: tkinter.Canvas widget
-            root: Tk root window
-            status_callback: fungsi untuk update status bar
-        """
         self.canvas = canvas
         self.root = root
         self.status_callback = status_callback
@@ -103,7 +80,6 @@ class CanvasManager:
     # ============================================================
 
     def on_mouse_move(self, event):
-        """Update posisi mouse di status bar."""
         x, y = event.x, event.y
         if self.current_tool == 'select':
             if (self.selected_object and
@@ -158,7 +134,6 @@ class CanvasManager:
                 )
 
     def on_mouse_down(self, event):
-        """Handler saat mouse ditekan."""
         x, y = event.x, event.y
 
         if self.current_tool == "select":
@@ -249,7 +224,6 @@ class CanvasManager:
             self.start_y = y
 
     def on_mouse_drag(self, event):
-        """Handler saat mouse di-drag (preview rubber-banding)."""
         if self.current_tool == 'select' and self.selection_mode == 'marquee':
             self.on_marquee_drag(event)
             return
@@ -417,7 +391,6 @@ class CanvasManager:
             self.freehand_points.append((x, y))
 
     def on_mouse_up(self, event):
-        """Handler saat mouse dilepas — finalisasi objek."""
         if self.selection_mode == 'marquee':
             self.selection_mode = None
             self.on_marquee_up(event)
@@ -473,7 +446,6 @@ class CanvasManager:
             self.render_object(obj)
 
     def on_marquee_down(self, event):
-        """Mulai area selection dengan klik kanan / middle click."""
         self.marquee_start = (event.x, event.y)
         self._delete_marquee_rect()
         self.marquee_rect_id = self.canvas.create_rectangle(
@@ -487,7 +459,6 @@ class CanvasManager:
         )
 
     def on_marquee_drag(self, event):
-        """Update kotak marquee saat mouse kanan ditahan dan digeser."""
         if self.marquee_start is None or self.marquee_rect_id is None:
             return
 
@@ -502,7 +473,6 @@ class CanvasManager:
             )
 
     def on_marquee_up(self, event):
-        """Pilih object yang masuk area marquee."""
         if self.marquee_start is None:
             return
 
@@ -522,10 +492,6 @@ class CanvasManager:
     # ============================================================
 
     def _create_line_object(self, x1, y1, x2, y2):
-        """
-        Membuat objek garis menggunakan algoritma Bresenham.
-        Pixel-pixel hasil algoritma digambar pada canvas.
-        """
         obj = DrawingObject(
             obj_type="line",
             points=[(x1, y1), (x2, y2)],
@@ -538,7 +504,6 @@ class CanvasManager:
         self.render_object(obj)
 
     def _create_rectangle_object(self, x1, y1, x2, y2):
-        """Membuat objek persegi panjang."""
         obj = DrawingObject(
             obj_type="rectangle",
             points=[(x1, y1), (x2, y2)],
@@ -551,7 +516,6 @@ class CanvasManager:
         self.render_object(obj)
 
     def _create_circle_object(self, cx, cy, ex, ey):
-        """Membuat objek lingkaran (pusat + radius)."""
         dx = ex - cx
         dy = ey - cy
         r = math.sqrt(dx * dx + dy * dy)
@@ -567,7 +531,6 @@ class CanvasManager:
         self.render_object(obj)
 
     def _create_triangle_object(self, x1, y1, x2, y2):
-        """Membuat objek segitiga."""
         mid_x = (x1 + x2) / 2
         obj = DrawingObject(
             obj_type="triangle",
@@ -581,7 +544,6 @@ class CanvasManager:
         self.render_object(obj)
 
     def _create_trapezium_object(self, x1, y1, x2, y2):
-        """Membuat objek Trapezium."""
         w = abs(x2 - x1)
         points = [
             (x1 + w * 0.25, y1),
@@ -601,7 +563,6 @@ class CanvasManager:
         self.render_object(obj)
 
     def _create_ellipse_object(self, x1, y1, x2, y2):
-        """Membuat objek Ellipse."""
         obj = DrawingObject(
             obj_type="ellipse",
             points=[(x1, y1), (x2, y2)],
@@ -618,11 +579,6 @@ class CanvasManager:
     # ============================================================
 
     def _handle_bezier_click(self, x, y):
-        """
-        Menangani klik untuk tool Bezier.
-        Setiap klik menambah titik kontrol.
-        Setelah 4 titik, kurva digambar.
-        """
         self.bezier_points.append((x, y))
 
         r = 4
@@ -665,10 +621,6 @@ class CanvasManager:
     # ============================================================
 
     def _handle_fill(self, x, y):
-        """
-        Menangani klik untuk tool Fill.
-        Menggunakan algoritma Flood Fill.
-        """
         fill_color = self.current_fill_color or self.current_color
 
         target = self._find_fill_target(x, y)
@@ -691,7 +643,6 @@ class CanvasManager:
             self._flood_fill_simple(x, y)
 
     def _find_fill_target(self, x, y):
-        """Cari shape yang bisa di-fill pada posisi klik."""
         for obj in reversed(self.objects):
             if obj.obj_type == "fill":
                 continue
@@ -700,7 +651,6 @@ class CanvasManager:
         return None
 
     def _point_in_fillable_object(self, obj, x, y):
-        """Cek apakah titik berada di area objek yang bisa punya fill_color."""
         if obj.obj_type == "rectangle":
             return self._point_in_bbox(x, y, obj.get_bbox())
         if obj.obj_type == "circle":
@@ -714,7 +664,6 @@ class CanvasManager:
         return False
 
     def _find_control_point_at(self, obj, x, y, radius=10):
-        """Cari index titik kontrol kurva yang dekat dengan posisi mouse."""
         if obj is None or obj.obj_type != "bezier":
             return None
 
@@ -775,7 +724,6 @@ class CanvasManager:
         return (sx - ex) ** 2 + (sy - ey) ** 2 <= tolerance ** 2
 
     def _point_in_fill_object(self, x, y, obj):
-        """Cek hit-test untuk layer fill raster berdasarkan alpha pixel."""
         if len(obj.points) < 2:
             return self._point_in_bbox(x, y, obj.get_bbox())
 
@@ -804,7 +752,6 @@ class CanvasManager:
             return True
 
     def _flood_fill_pil(self, x, y, width, height):
-        """Flood fill menggunakan Pillow untuk akses pixel."""
         try:
             img = self._render_canvas_to_pil(width, height)
 
@@ -893,17 +840,6 @@ class CanvasManager:
             self._flood_fill_simple(x, y)
 
     def _render_canvas_to_pil(self, width, height):
-        """
-        Renderkan current objects menjadi sebuah PIL.Image RGB berukuran (width, height).
-
-        Tujuan: menghindari ImageGrab/screen capture. Metode ini mencoba menggambar
-        semua objek vektor yang kita simpan (lines, rectangles, circles, polygons,
-        text) pada sebuah ImageDraw. Untuk objek image, jika kita punya referensi
-        PhotoImage pada objek, kita paste-nya ke image hasil.
-
-        Catatan: Ini adalah renderer sederhana yang mencukupi untuk operasi fill.
-        Tidak menjamin kesempurnaan visual identik dengan tkinter.Canvas.
-        """
         img = Image.new('RGB', (max(1, width), max(1, height)), (255, 255, 255))
         draw = ImageDraw.Draw(img)
 
@@ -988,7 +924,6 @@ class CanvasManager:
         return img
 
     def _paste_pil_layer(self, base_img, layer_img, points):
-        """Paste PIL image ke base dengan dukungan alpha dan resize bbox."""
         if not points:
             return
 
@@ -1011,11 +946,6 @@ class CanvasManager:
         base_img.paste(layer.convert('RGB'), (int(round(paste_x)), int(round(paste_y))), layer)
 
     def _flood_fill_simple(self, x, y):
-        """
-        Flood fill sederhana tanpa Pillow.
-        Menggunakan canvas.find_overlapping untuk deteksi area,
-        lalu menggambar rectangle kecil sebagai fill.
-        """
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
@@ -1042,10 +972,6 @@ class CanvasManager:
     # ============================================================
 
     def _handle_text(self, x, y):
-        """
-        Menangani klik untuk tool Text.
-        Membuka dialog input teks, lalu menampilkan pada canvas.
-        """
         text = simpledialog.askstring(
             "Input Teks",
             "Masukkan teks:",
@@ -1068,10 +994,6 @@ class CanvasManager:
     # ============================================================
 
     def _handle_select(self, x, y):
-        """
-        Memilih objek di posisi klik.
-        Mencari objek yang bounding box-nya mengandung posisi klik.
-        """
         self._clear_selection()
 
         for obj in reversed(self.objects):
@@ -1100,7 +1022,6 @@ class CanvasManager:
         self._set_selected_objects([])
 
     def _handle_area_select(self, area_bbox):
-        """Pilih semua object yang bersentuhan dengan kotak marquee."""
         self._clear_selection()
 
         selected = []
@@ -1139,10 +1060,6 @@ class CanvasManager:
             self.marquee_rect_id = None
 
     def _merge_fill_into_target(self, fill_obj, x, y):
-        """
-        Gabungkan layer fill raster ke object vektor di bawahnya.
-        Ini mencegah fill dan border terpilih sebagai dua object berbeda.
-        """
         fill_color = fill_obj.fill_color or fill_obj.outline_color
 
         mergeable_types = {"rectangle", "circle", "ellipse", "triangle", "trapezium", "freehand"}
@@ -1163,13 +1080,11 @@ class CanvasManager:
         return None
 
     def _set_selected_objects(self, objects):
-        """Set seleksi aktif, mendukung satu atau banyak object."""
         self.selected_objects = [obj for obj in objects if obj is not None]
         self.selected_object = self.selected_objects[0] if self.selected_objects else None
         self._draw_selection_boxes()
 
     def _draw_selection_boxes(self):
-        """Gambar semua box seleksi aktif."""
         self._clear_selection_box()
         selected = self.selected_objects
         if not selected and self.selected_object:
@@ -1182,7 +1097,6 @@ class CanvasManager:
             self._draw_selection_box(obj, clear_existing=False)
 
     def _draw_selection_box(self, obj, clear_existing=True):
-        """Menggambar bounding box seleksi di sekitar objek."""
         if clear_existing:
             self._clear_selection_box()
         bbox = obj.get_bbox()
@@ -1243,13 +1157,11 @@ class CanvasManager:
         self.selection_box_ids.append(txt_id)
 
     def _clear_selection_box(self):
-        """Hapus visual bounding box seleksi."""
         for sid in self.selection_box_ids:
             self.canvas.delete(sid)
         self.selection_box_ids = []
 
     def _clear_selection(self):
-        """Hapus seleksi aktif."""
         self._clear_selection_box()
         self.selected_object = None
         self.selected_objects = []
@@ -1259,10 +1171,6 @@ class CanvasManager:
     # ============================================================
 
     def render_object(self, obj):
-        """
-        Menggambar satu objek pada canvas.
-        Menghapus item canvas lama lalu buat yang baru.
-        """
         for cid in obj.canvas_ids:
             self.canvas.delete(cid)
         obj.canvas_ids = []
@@ -1298,10 +1206,6 @@ class CanvasManager:
             self._draw_selection_boxes()
 
     def _render_line(self, obj, dash):
-        """
-        Render garis menggunakan algoritma Bresenham.
-        Titik-titik pixel dari algoritma digambar sebagai rectangle kecil.
-        """
         if len(obj.points) < 2:
             return
 
@@ -1329,7 +1233,6 @@ class CanvasManager:
             pass
 
     def _render_rectangle(self, obj, dash):
-        """Render persegi panjang."""
         if len(obj.points) < 2:
             return
 
@@ -1346,7 +1249,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_circle(self, obj, dash):
-        """Render lingkaran."""
         if len(obj.points) < 2:
             return
 
@@ -1364,7 +1266,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_triangle(self, obj, dash):
-        """Render segitiga."""
         if len(obj.points) < 3:
             return
 
@@ -1382,7 +1283,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_trapezium(self, obj, dash):
-        """Render trapesium."""
         if len(obj.points) < 4:
             return
         coords = []
@@ -1398,7 +1298,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_ellipse(self, obj, dash):
-        """Render elips."""
         if len(obj.points) < 2:
             return
         x1, y1 = obj.points[0]
@@ -1413,10 +1312,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_bezier(self, obj, dash):
-        """
-        Render kurva Bezier menggunakan algoritma De Casteljau.
-        Titik-titik kurva dihitung, lalu digambar sebagai rangkaian garis.
-        """
         if len(obj.points) < 2:
             return
 
@@ -1452,7 +1347,6 @@ class CanvasManager:
             obj.canvas_ids.append(dot_id)
 
     def _render_freehand(self, obj, dash):
-        """Render garis freehand (Pencil/Eraser)."""
         if len(obj.points) < 2:
             return
             
@@ -1481,7 +1375,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_text(self, obj):
-        """Render teks pada canvas."""
         if not obj.text_content or not obj.points:
             return
 
@@ -1501,7 +1394,6 @@ class CanvasManager:
             obj.points = [(bbox[0], bbox[1]), (bbox[2], bbox[3])]
 
     def _render_image(self, obj):
-        """Render gambar pada canvas."""
         if not obj.points:
             return
 
@@ -1545,7 +1437,6 @@ class CanvasManager:
         obj.canvas_ids.append(cid)
 
     def _render_fill(self, obj):
-        """Render layer fill raster transparan."""
         if not obj.points:
             return
 
@@ -1584,7 +1475,6 @@ class CanvasManager:
     # ============================================================
 
     def render_all(self):
-        """Hapus canvas dan render ulang semua objek."""
         self.canvas.delete("all")
         for obj in self.objects:
             obj.canvas_ids = []
@@ -1613,13 +1503,6 @@ class CanvasManager:
     # ============================================================
 
     def transform_selected(self, transform_type, **kwargs):
-        """
-        Terapkan transformasi pada objek yang dipilih.
-        
-        Args:
-            transform_type: "translate", "rotate", "scale"
-            kwargs: parameter transformasi (dx, dy, angle, factor)
-        """
         if self.selected_object is None:
             messagebox.showinfo("Info", "Pilih objek terlebih dahulu!")
             return
@@ -1657,14 +1540,12 @@ class CanvasManager:
     # ============================================================
 
     def _push_undo(self):
-        """Simpan snapshot state saat ini ke undo stack."""
         snapshot = [obj.clone() for obj in self.objects]
         self.undo_stack.append(snapshot)
         if len(self.undo_stack) > self.max_undo:
             self.undo_stack.pop(0)
 
     def undo(self):
-        """Batalkan aksi terakhir dengan restore dari undo stack."""
         if not self.undo_stack:
             messagebox.showinfo("Info", "Tidak ada aksi untuk di-undo.")
             return
@@ -1682,7 +1563,6 @@ class CanvasManager:
     # ============================================================
 
     def clear_canvas(self):
-        """Hapus semua objek pada canvas (dengan konfirmasi)."""
         if not self.objects:
             return
 
@@ -1702,7 +1582,6 @@ class CanvasManager:
     # ============================================================
 
     def save_canvas(self):
-        """Simpan canvas sebagai file PNG."""
         filepath = filedialog.asksaveasfilename(
             defaultextension=".png",
             filetypes=[
@@ -1749,7 +1628,6 @@ class CanvasManager:
     # ============================================================
 
     def insert_image(self):
-        """Memasukkan gambar dari file ke canvas."""
         filepath = filedialog.askopenfilename(
             filetypes=[
                 ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.ppm *.pgm"),
@@ -1810,11 +1688,9 @@ class CanvasManager:
     # ============================================================
 
     def _get_dash_pattern(self):
-        """Mendapatkan dash pattern untuk style garis aktif."""
         return self._get_dash_pattern_for(self.current_line_style)
 
     def _get_dash_pattern_for(self, style):
-        """Mendapatkan dash pattern berdasarkan nama style."""
         if style == "dashed":
             return (10, 5)
         elif style == "dotted":
@@ -1823,7 +1699,6 @@ class CanvasManager:
             return ()
 
     def set_tool(self, tool):
-        """Mengubah tool aktif."""
         if self.current_tool == "bezier" and tool != "bezier":
             for pid in self.bezier_preview_ids:
                 self.canvas.delete(pid)
